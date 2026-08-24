@@ -1,1 +1,25 @@
-# Medgraph
+# MedGraph PWA
+
+This folder is ready for static HTTPS hosting (GitHub Pages, Cloudflare Pages, Netlify, etc.).
+
+## Easiest GitHub Pages setup
+1. Create a new GitHub repository.
+2. Upload every file in this folder to the repository root.
+3. In the repository, open Settings → Pages.
+4. Under Build and deployment, choose "Deploy from a branch".
+5. Choose the `main` branch and `/ (root)`, then Save.
+6. Open the Pages URL in Safari.
+7. On iPad/iPhone: Share → Add to Home Screen → Open as Web App.
+
+Do NOT upload your exported MedGraph JSON to a public repository. The app code can be public; your graph/training data stays in browser storage unless you explicitly export it.
+
+## Backups
+Inside MedGraph, tap Export:
+- Save / Share full JSON — complete backup
+- Save / Share handwriting JSON — personal handwriting/gesture data only
+- Import handwriting JSON — merge handwriting training back in
+
+On iOS, Save / Share uses the system share sheet when available; choose Save to Files.
+
+## Offline
+After the PWA loads successfully once, the service worker caches the app shell so it can reopen offline. Browser-local MedGraph data is stored separately in localStorage.
