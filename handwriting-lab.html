@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MedGraph Handwriting Lab v1.2</title>
+<style>
+:root{
+  --bg:#e9ecef;--surface:#fff;--surface2:#f5f7f9;--ink:#12171c;--muted:#5c6873;
+  --line:#d3d9df;--line2:#e5eaee;--ok:#15803d;--warn:#b45309;--err:#b91c1c;
+  --accent:#4f46e5;--purple:#6b46c1;--r:7px
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+header{position:sticky;top:0;z-index:50;background:var(--ink);color:#fff;padding:9px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.brand{font-weight:800;letter-spacing:.04em;text-transform:uppercase}.brand small{display:block;font-size:9px;opacity:.55;letter-spacing:.13em}
+.tabs{display:flex;gap:5px;flex-wrap:wrap}
+.hbtn,.tab{border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;border-radius:5px;padding:6px 10px;font-weight:650;font-size:12px}
+.tab.on,.hbtn.solid{background:#fff;color:var(--ink);border-color:#fff}
+.hright{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.status{font-size:11px;opacity:.72}
+main{max-width:1240px;margin:0 auto;padding:16px 16px 70px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:15px;margin-bottom:12px}
+.ph{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:11px}.ph h2{font-size:17px;margin:0}.ph h3{font-size:15px;margin:0}
+.hint{font-size:11.5px;color:var(--muted)}
+.eyebrow{font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+@media(max-width:850px){.grid2,.grid3{grid-template-columns:1fr}.grid4{grid-template-columns:1fr 1fr}.hright{margin-left:0;width:100%}}
+.fld{display:grid;gap:4px;margin-bottom:9px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:#fff;border-radius:5px;padding:8px 9px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:0 0 0 2px rgba(18,23,28,.08)}
+.btn,.mini{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:5px;padding:8px 13px;font-weight:700}
+.btn.ghost,.mini{background:#fff;color:var(--ink);border-color:var(--line)}.mini{padding:5px 9px;font-size:12px}
+.mini.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.mini.danger{color:var(--err);border-color:#edc4c4}.btn:disabled,.mini:disabled{opacity:.42;cursor:default}
+.actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}@media(max-width:800px){.metrics{grid-template-columns:repeat(2,1fr)}}
+.metric{background:var(--surface2);border:1px solid var(--line2);border-radius:6px;padding:10px}.metric b{font-size:20px;display:block}.metric span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:750}
+.notice{padding:9px 11px;border:1px solid #d7d9f5;background:#f7f7ff;border-left:3px solid var(--accent);border-radius:5px;font-size:12px}
+.warn{border-color:#ecd6ad;background:#fffaf0;border-left-color:var(--warn)}
+.ok{border-color:#b9dfc4;background:#f4fbf6;border-left-color:var(--ok)}
+.canvaswrap{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff}
+canvas.ink{display:block;width:100%;height:440px;touch-action:none;background:#fff}
+.canvasbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.prompt{background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:9px}
+.prompt .big{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:24px;font-weight:700;margin-top:4px;white-space:pre-wrap}
+.progress{height:7px;background:var(--line2);border-radius:20px;overflow:hidden;margin-top:8px}.progress>i{display:block;height:100%;background:var(--ok)}
+.table{width:100%;border-collapse:collapse}.table th,.table td{border-bottom:1px solid var(--line2);padding:7px 8px;text-align:left;vertical-align:top;font-size:12px}.table th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:100px;padding:2px 7px;font-size:10px;font-weight:700;background:#fff}
+.pill.real{color:var(--ok);border-color:#b8ddc0}.pill.syn{color:var(--purple);border-color:#cfbfeb}.pill.auto{color:var(--warn);border-color:#e6cfac}
+.seglist{display:grid;gap:7px}.segrow{border:1px solid var(--line);border-radius:5px;padding:7px 9px;background:#fff}.segrow.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.bar{height:8px;background:var(--line2);border-radius:20px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}@media(max-width:850px){.cards{grid-template-columns:1fr}}
+.card{border:1px solid var(--line);border-radius:6px;padding:10px;background:#fff}
+.previewgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}@media(max-width:700px){.previewgrid{grid-template-columns:1fr}}
+.previewitem{border:1px solid var(--line);border-radius:6px;padding:8px}.previewitem canvas{width:100%;height:170px;display:block;background:#fff;border:1px solid var(--line2);border-radius:4px}
+.tagrow{display:flex;gap:5px;flex-wrap:wrap}
+.kbd{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;background:var(--surface2);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+.mono{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+.hidden{display:none!important}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px}@media(max-width:920px){.split{grid-template-columns:1fr}}
+.scrollbox{max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:5px}
+.sticky{position:sticky;top:70px}
+input[type=range]{padding:0}
+footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
+</style>
+
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#12171C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MedGraph Lab">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+</head>
+<body>
+<header>
+  <div class="brand">Handwriting Lab<small>for MedGraph</small></div><button class="hbtn" onclick="location.href='./index.html'">← MedGraph</button>
+  <div class="tabs" id="tabs"></div>
+  <div class="hright">
+    <span class="status" id="save-status">local</span>
+    <button class="hbtn" onclick="importClick()">Import MedGraph</button>
+    <button class="hbtn solid" onclick="exportMedGraph()">Export MedGraph</button>
+    <input id="file-in" type="file" accept=".json,application/json" hidden onchange="importFile(this.files[0]);this.value=''">
+  </div>
+</header>
+<main id="app"></main>
+<footer>Local-first companion trainer. Synthetic handwriting is stroke-based augmentation, not a neural image generator.</footer>
+
+<script>
+'use strict';
+
+/* ---------- state ---------- */
+const LS='medgraph_handwriting_lab_v1';
+const TABS=[['dash','Dashboard'],['collect','Collect'],['segment','Segment'],['generate','Generate'],['test','Test'],['data','Data']];
+let S={
+  tab:'dash',
+  graph:null,
+  standalone:{defs:[],whiteboard:{training:{samples:[]}}},
+  selectedSample:null,
+  canvas:{strokes:[],active:null,tool:'pen',panX:0,panY:0,zoom:1,fingerDraw:false},
+  guided:{active:false,set:'lower',reps:5,queue:[],i:0,saved:0},
+  segment:{sampleId:null,angle:null,selectedWordKey:'0:0',boundaryIndex:0,overrides:{}},
+  gen:{text:'adaptive immunity',count:6,augment:10,slant:7,size:12,spacing:12,jitter:1.4,previews:[]},
+  validation:[],
+  test:{strokes:[],active:null,truth:'',result:null}
+};
+const uid=p=>p+'_'+Math.random().toString(36).slice(2,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const canon=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^\p{L}\d]+/gu,' ').trim().replace(/\s+/g,' ');
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S));document.getElementById('save-status').textContent='saved locally'}catch(e){document.getElementById('save-status').textContent='memory only'}}
+function loadLocal(){try{const x=JSON.parse(localStorage.getItem(LS)||'null');if(x)S={...S,...x,canvas:{...S.canvas,...(x.canvas||{}),active:null},test:{...S.test,...(x.test||{}),active:null}}}catch(e){}}
+function graph(){return S.graph||S.standalone}
+function training(){const G=graph();G.whiteboard=G.whiteboard||{};G.whiteboard.training=G.whiteboard.training||{};G.whiteboard.training.samples=G.whiteboard.training.samples||[];G.whiteboard.training.lab=G.whiteboard.training.lab||{};return G.whiteboard.training}
+function samples(){return training().samples}
+function defs(){return graph().defs||[]}
+function vocab(){const out=[];defs().forEach(d=>{if(d?.term)out.push(d.term);(d?.aliases||[]).forEach(a=>out.push(a))});return [...new Set(out)]}
+function toast(msg){let d=document.createElement('div');d.textContent=msg;d.style.cssText='position:fixed;z-index:9999;bottom:18px;left:50%;transform:translateX(-50%);background:#12171c;color:#fff;padding:8px 14px;border-radius:100px;font-weight:700;font-size:12px;box-shadow:0 5px 20px #0004';document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
+function download(name,text,type='application/json'){const b=new Blob([text],{type}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+function importClick(){document.getElementById('file-in').click()}
+async function importFile(f){
+  if(!f)return;
+  try{
+    const x=JSON.parse(await f.text());
+    const incoming=x.graph||x;
+    if(!incoming||typeof incoming!=='object')throw Error('Not a JSON object');
+    if(incoming.defs||incoming.rels||incoming.seqs||incoming.whiteboard){
+      if(S.graph && !confirm('Replace the currently loaded MedGraph? Training samples from the new file will be kept with that graph.'))return;
+      S.graph=incoming;training();
+      saveLocal();render();toast(`Loaded MedGraph · ${defs().length} terms · ${samples().length} training samples`);
+    }else if(x.samples){
+      mergeTrainingPack(x);saveLocal();render();toast('Training pack merged');
+    }else throw Error('This does not look like a MedGraph export or Handwriting Lab pack');
+  }catch(e){alert('Could not import file:\\n'+e.message)}
+}
+function mergeTrainingPack(x){
+  const T=samples(),seen=new Set(T.map(a=>(a.id||'')+'|'+(a.category||'')+'|'+(a.label||'')));
+  let n=0;(x.samples||[]).forEach(a=>{const k=(a.id||'')+'|'+(a.category||'')+'|'+(a.label||'');if(!seen.has(k)){T.push(a);seen.add(k);n++}});
+  if(x.validation)S.validation.push(...x.validation.filter(v=>!S.validation.some(z=>z.id===v.id)));
+  return n
+}
+function exportMedGraph(){
+  const G=graph();
+  if(!G){toast('Nothing to export');return}
+  training().lab={...(training().lab||{}),lastLabExport:Date.now(),validation:S.validation};
+  download('medgraph_with_handwriting_training.json',JSON.stringify(G,null,2));
+}
+function exportPack(){download('medgraph_handwriting_training_pack.json',JSON.stringify({version:1,created:Date.now(),samples:samples(),validation:S.validation},null,2))}
+function resetLab(){if(!confirm('Reset the Handwriting Lab local workspace? This does not alter any file you already exported.'))return;localStorage.removeItem(LS);location.reload()}
+
+/* ---------- stroke utilities ---------- */
+function boundsPts(pts){let minx=Infinity,miny=Infinity,maxx=-Infinity,maxy=-Infinity;(pts||[]).forEach(p=>{minx=Math.min(minx,p.x);miny=Math.min(miny,p.y);maxx=Math.max(maxx,p.x);maxy=Math.max(maxy,p.y)});if(!isFinite(minx))return{x:0,y:0,w:0,h:0};return{x:minx,y:miny,w:maxx-minx,h:maxy-miny}}
+function sb(st){return st.b||boundsPts(st.pts)}
+function union(bs){if(!bs.length)return{x:0,y:0,w:0,h:0};let x=Math.min(...bs.map(b=>b.x)),y=Math.min(...bs.map(b=>b.y)),x2=Math.max(...bs.map(b=>b.x+b.w)),y2=Math.max(...bs.map(b=>b.y+b.h));return{x,y,w:x2-x,h:y2-y}}
+function strokeLen(st){let n=0,p=st.pts||[];for(let i=1;i<p.length;i++)n+=Math.hypot(p[i].x-p[i-1].x,p[i].y-p[i-1].y);return n}
+function normalizeStrokes(strokes){
+  if(!strokes?.length)return[];
+  const b=union(strokes.map(sb)),den=Math.max(1,b.w,b.h);
+  return strokes.map(st=>({pts:(st.pts||[]).map(p=>[+( (p.x-b.x)/den).toFixed(4),+( (p.y-b.y)/den).toFixed(4),+(p.p??.5).toFixed(3)])}))
+}
+function denormalize(compact,x=0,y=0,scale=100,rot=0,sx=1,sy=1,jitter=0){
+  const cs=Math.cos(rot),sn=Math.sin(rot),out=[];
+  (compact||[]).forEach(st=>{
+    const pts=(st.pts||[]).map(q=>{
+      let xx=q[0]*scale*sx,yy=q[1]*scale*sy;
+      if(jitter){xx+=(Math.random()*2-1)*jitter;yy+=(Math.random()*2-1)*jitter}
+      return{x:x+xx*cs-yy*sn,y:y+xx*sn+yy*cs,p:q[2]??.5}
+    });if(pts.length>1)out.push({id:uid('st'),pts,b:boundsPts(pts)})
+  });return out
+}
+function signature(strokes){
+  const N=24,c=document.createElement('canvas');c.width=N;c.height=N;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,N,N);
+  const b=union(strokes.map(sb));if(!b.w&&!b.h)return[];
+  const sc=Math.min((N-4)/Math.max(1,b.w),(N-4)/Math.max(1,b.h)),ox=(N-b.w*sc)/2,oy=(N-b.h*sc)/2;
+  x.strokeStyle='#000';x.lineWidth=1.7;x.lineCap='round';x.lineJoin='round';
+  strokes.forEach(st=>{const p=st.pts||[];if(p.length<2)return;x.beginPath();p.forEach((q,i)=>{const xx=ox+(q.x-b.x)*sc,yy=oy+(q.y-b.y)*sc;i?x.lineTo(xx,yy):x.moveTo(xx,yy)});x.stroke()});
+  const d=x.getImageData(0,0,N,N).data,a=[];for(let i=0;i<N*N;i++)if(d[i*4]<210)a.push(i);return a
+}
+function sigSim(a,b){if(!a?.length||!b?.length)return 0;const A=new Set(a),B=new Set(b);let n=0;A.forEach(v=>{if(B.has(v))n++});return n/Math.max(1,A.size+B.size-n)}
+function dirHist(strokes){
+  const h=Array(8).fill(0);let total=0;
+  strokes.forEach(st=>{const p=st.pts||[];for(let i=1;i<p.length;i++){const dx=p[i].x-p[i-1].x,dy=p[i].y-p[i-1].y,l=Math.hypot(dx,dy);if(l<.2)continue;let a=Math.atan2(dy,dx);if(a<0)a+=Math.PI*2;h[Math.floor(a/(Math.PI/4))%8]+=l;total+=l}});
+  return h.map(x=>x/Math.max(1,total))
+}
+function feat(strokes){
+  if(!strokes?.length)return[];
+  const b=union(strokes.map(sb)),diag=Math.max(1,Math.hypot(b.w,b.h)),lens=strokes.map(strokeLen),tot=lens.reduce((a,x)=>a+x,0);
+  let close=0;strokes.forEach(st=>{const p=st.pts||[];if(p.length>1)close+=Math.hypot(p[0].x-p.at(-1).x,p[0].y-p.at(-1).y)/Math.max(1,strokeLen(st))});close/=strokes.length;
+  return[Math.min(1,strokes.length/12),Math.min(3,b.w/Math.max(1,b.h))/3,Math.min(3,b.h/Math.max(1,b.w))/3,Math.min(4,tot/diag)/4,Math.min(1,close),...dirHist(strokes)]
+}
+function storeSample(category,label,strokes,meta={},source='lab-real'){
+  const sm={id:uid('lab'),category,label:String(label||'').trim(),sig:signature(strokes),strokes:normalizeStrokes(strokes),features:feat(strokes),meta:{weight:1,...meta},source,created:Date.now()};
+  samples().push(sm);return sm
+}
+function isSyntheticSample(s){return !!(s?.meta?.synthetic||String(s?.source||'').startsWith('synthetic'))}
+function sampleWeight(s){if(s?.meta?.weight!=null)return +s.meta.weight;return isSyntheticSample(s)?.25:s.category==='letter_auto'?.55:1}
+function sampleAsStrokes(s){return denormalize(s.strokes,0,0,100)}
+
+/* ---------- geometry / line-word segmentation ---------- */
+function rotateStrokes(strokes,angle,cx,cy){
+  const cs=Math.cos(angle),sn=Math.sin(angle);
+  return strokes.map(st=>{const pts=st.pts.map(p=>{const dx=p.x-cx,dy=p.y-cy;return{x:cx+dx*cs-dy*sn,y:cy+dx*sn+dy*cs,p:p.p}});return{...st,pts,b:boundsPts(pts)}})
+}
+function estimateAngle(strokes){
+  const centers=strokes.map(st=>{const b=sb(st);return{x:b.x+b.w/2,y:b.y+b.h/2,w:Math.max(1,strokeLen(st))}}).filter(Boolean);
+  if(centers.length<2)return 0;
+  let mx=0,my=0,sw=0;centers.forEach(p=>{mx+=p.x*p.w;my+=p.y*p.w;sw+=p.w});mx/=sw;my/=sw;
+  let xx=0,xy=0,yy=0;centers.forEach(p=>{let dx=p.x-mx,dy=p.y-my;xx+=p.w*dx*dx;xy+=p.w*dx*dy;yy+=p.w*dy*dy});
+  let a=.5*Math.atan2(2*xy,xx-yy);
+  while(a>Math.PI/4)a-=Math.PI/2;while(a<-Math.PI/4)a+=Math.PI/2;
+  return a
+}
+function segmentInk(strokes,forcedAngle=null,label=''){
+  if(!strokes?.length)return{angle:0,lines:[]};
+  const allb=union(strokes.map(sb)),cx=allb.x+allb.w/2,cy=allb.y+allb.h/2;
+  const ang=forcedAngle==null?estimateAngle(strokes):forcedAngle;
+  const R=rotateStrokes(strokes,-ang,cx,cy);
+  const items=R.map((st,i)=>({st,i,b:sb(st),cy:sb(st).y+sb(st).h/2,cx:sb(st).x+sb(st).w/2})).sort((a,b)=>a.cy-b.cy);
+  const heights=items.map(x=>Math.max(4,x.b.h)).sort((a,b)=>a-b),mh=heights[Math.floor(heights.length/2)]||20;
+  const lines=[];
+  items.forEach(it=>{
+    let best=null,dist=Infinity;
+    lines.forEach(L=>{const d=Math.abs(it.cy-L.cy);if(d<Math.max(mh*.65,L.h*.65)&&d<dist){best=L;dist=d}});
+    if(!best){best={items:[],cy:it.cy,h:it.b.h};lines.push(best)}
+    best.items.push(it);best.cy=best.items.reduce((a,x)=>a+x.cy,0)/best.items.length;best.h=Math.max(...best.items.map(x=>x.b.h))
+  });
+  lines.sort((a,b)=>a.cy-b.cy);
+  const labelLines=String(label||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  const flatWords=canon(label).split(' ').filter(Boolean);let wordCursor=0;
+  lines.forEach((L,li)=>{
+    L.items.sort((a,b)=>a.b.x-b.b.x);
+    const gaps=[];for(let i=1;i<L.items.length;i++){const a=L.items[i-1].b,b=L.items[i].b;gaps.push(b.x-(a.x+a.w))}
+    const pos=gaps.filter(x=>x>0).sort((a,b)=>a-b),mg=pos.length?pos[Math.floor(pos.length/2)]:mh*.12,split=Math.max(mh*.42,mg*2.2,9);
+    L.words=[];let group=[];
+    L.items.forEach((it,i)=>{if(group.length){const gb=union(group.map(z=>z.b)),gap=it.b.x-(gb.x+gb.w);if(gap>split){L.words.push(group);group=[]}}group.push(it)});if(group.length)L.words.push(group);
+    const lineText=labelLines[li]||'';
+    const tokens=lineText?lineText.split(/\s+/):flatWords.slice(wordCursor,wordCursor+L.words.length);
+    L.words=L.words.map((g,wi)=>{
+      const rb=union(g.map(x=>x.b)),token=tokens[wi]||flatWords[wordCursor+wi]||'';
+      const n=[...token].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+      const chars=[];
+      if(n){
+        const proj=Array(Math.max(1,Math.ceil(rb.w))).fill(0);
+        g.forEach(it=>(it.st.pts||[]).forEach(p=>{const k=Math.max(0,Math.min(proj.length-1,Math.floor(p.x-rb.x)));proj[k]++}));
+        let cuts=[];for(let k=1;k<proj.length-1;k++)if(proj[k]<=proj[k-1]&&proj[k]<=proj[k+1])cuts.push(k);
+        const targets=[];for(let ci=1;ci<n;ci++)targets.push(rb.w*ci/n);
+        const chosen=targets.map(t=>cuts.reduce((best,k)=>Math.abs(k-t)<Math.abs(best-t)?k:best,t));
+        const xs=[0,...chosen,rb.w];
+        for(let ci=0;ci<n;ci++)chars.push({x:rb.x+xs[ci],y:rb.y,w:Math.max(2,xs[ci+1]-xs[ci]),h:rb.h,char:[...token].filter(ch=>/\p{L}|\d/u.test(ch))[ci]||''})
+      }
+      return{items:g,b:rb,text:token,chars}
+    });
+    wordCursor+=L.words.length;
+    L.b=union(L.words.map(w=>w.b));
+  });
+  return{angle:ang,cx,cy,rotated:R,lines}
+}
+
+function segOverride(id){
+  S.segment.overrides=S.segment.overrides||{};
+  S.segment.overrides[id]=S.segment.overrides[id]||{merges:[],splits:[],labels:{},charCuts:{}};
+  const o=S.segment.overrides[id];o.merges=o.merges||[];o.splits=o.splits||[];o.labels=o.labels||{};o.charCuts=o.charCuts||{};return o
+}
+function rebuildWordChars(w,text,cuts=null){
+  w.text=text||w.text||'';
+  const chars=[...w.text].filter(ch=>/\p{L}|\d/u.test(ch)),n=chars.length;
+  w.chars=[];
+  if(!n){w.cutFractions=[];return w}
+  let c=Array.isArray(cuts)?cuts.slice(0,Math.max(0,n-1)):[];
+  if(c.length!==n-1)c=Array.from({length:Math.max(0,n-1)},(_,i)=>(i+1)/n);
+  c=c.map(x=>Math.max(.04,Math.min(.96,+x||.5))).sort((a,b)=>a-b);
+  for(let i=0;i<c.length;i++){
+    const lo=i?c[i-1]+.025:.04, hi=i<c.length-1?c[i+1]-.025:.96;
+    c[i]=Math.max(lo,Math.min(hi,c[i]));
+  }
+  const xs=[0,...c,1];
+  for(let i=0;i<n;i++)w.chars.push({
+    x:w.b.x+w.b.w*xs[i],y:w.b.y,w:w.b.w*(xs[i+1]-xs[i]),h:w.b.h,char:chars[i]
+  });
+  w.cutFractions=c;return w
+}
+function applySegOverrides(seg,sampleId){
+  const O=segOverride(sampleId);
+  // merges are applied from right to left so stored indices remain stable enough
+  for(const liStr of [...new Set(O.merges.map(x=>String(x.li)))]){
+    const li=+liStr,L=seg.lines[li];if(!L)continue;
+    const idxs=O.merges.filter(x=>x.li===li).map(x=>x.wi).sort((a,b)=>b-a);
+    idxs.forEach(wi=>{
+      if(!L.words[wi]||!L.words[wi+1])return;
+      const a=L.words[wi],b=L.words[wi+1],nw={items:[...(a.items||[]),...(b.items||[])],b:union([a.b,b.b]),text:[a.text,b.text].filter(Boolean).join(' ')};
+      rebuildWordChars(nw,nw.text);L.words.splice(wi,2,nw)
+    });
+  }
+  // splits cut the selected region at a saved fractional x location
+  O.splits.slice().sort((a,b)=>a.li-b.li||a.wi-b.wi).forEach(sp=>{
+    const L=seg.lines[sp.li],w=L?.words?.[sp.wi];if(!w)return;
+    const cut=w.b.x+w.b.w*Math.max(.15,Math.min(.85,sp.frac||.5));
+    const leftItems=(w.items||[]).filter(it=>it.cx<=cut),rightItems=(w.items||[]).filter(it=>it.cx>cut);
+    const lb=leftItems.length?union(leftItems.map(x=>x.b)):{x:w.b.x,y:w.b.y,w:cut-w.b.x,h:w.b.h};
+    const rb=rightItems.length?union(rightItems.map(x=>x.b)):{x:cut,y:w.b.y,w:w.b.x+w.b.w-cut,h:w.b.h};
+    const toks=String(w.text||'').split(/\s+/).filter(Boolean);
+    const a={items:leftItems,b:lb,text:toks[0]||''},b={items:rightItems,b:rb,text:toks.slice(1).join(' ')||''};
+    rebuildWordChars(a,a.text);rebuildWordChars(b,b.text);L.words.splice(sp.wi,1,a,b)
+  });
+  seg.lines.forEach((L,li)=>L.words.forEach((w,wi)=>{
+    const k=li+':'+wi;
+    if(O.labels[k]!=null)w.text=O.labels[k];
+    rebuildWordChars(w,w.text,O.charCuts[k]);
+  }));
+  return seg
+}
+function currentSeg(){
+  const s=samples().find(x=>x.id===S.segment.sampleId);if(!s)return null;
+  const st=realStrokesFromSample(s),auto=estimateAngle(st),ang=S.segment.angle==null?auto:S.segment.angle*Math.PI/180;
+  return {s,st,auto,ang,seg:applySegOverrides(segmentInk(st,ang,s.label),s.id)}
+}
+function segSelect(li,wi){S.segment.selectedWordKey=li+':'+wi;render()}
+function segSelected(){
+  const C=currentSeg();if(!C)return null;
+  const [li,wi]=String(S.segment.selectedWordKey||'0:0').split(':').map(Number);
+  return {...C,li,wi,w:C.seg.lines[li]?.words?.[wi]||null}
+}
+function selectedBoundaryData(){
+  const C=segSelected();if(!C?.w)return null;
+  const cuts=C.w.cutFractions||[],n=cuts.length;
+  S.segment.boundaryIndex=Math.max(0,Math.min(Math.max(0,n-1),S.segment.boundaryIndex||0));
+  return{...C,cuts,index:S.segment.boundaryIndex};
+}
+function segSetBoundaryValue(v,commit=true){
+  const B=selectedBoundaryData();if(!B||!B.cuts.length)return;
+  const cuts=B.cuts.slice(),i=B.index;
+  const lo=i?cuts[i-1]+.025:.04, hi=i<cuts.length-1?cuts[i+1]-.025:.96;
+  cuts[i]=Math.max(lo,Math.min(hi,(+v||50)/100));
+  segOverride(B.s.id).charCuts[B.li+':'+B.wi]=cuts;
+  if(commit)saveLocal();
+  paintSegmentLive();
+  const lbl=document.getElementById('seg-boundary-value');if(lbl)lbl.textContent=Math.round(cuts[i]*100)+'%';
+}
+function segBoundarySelect(i){S.segment.boundaryIndex=+i||0;render()}
+function segNudgeBoundary(delta){
+  const B=selectedBoundaryData();if(!B||!B.cuts.length)return;
+  segSetBoundaryValue((B.cuts[B.index]+delta)*100,true);render()
+}
+function segResetWordBoundaries(){
+  const B=segSelected();if(!B?.w)return;
+  delete segOverride(B.s.id).charCuts[B.li+':'+B.wi];
+  S.segment.boundaryIndex=0;saveLocal();render()
+}
+function segMergeSelected(){
+  const C=segSelected();if(!C?.w)return toast('Select a word region first');
+  if(!C.seg.lines[C.li]?.words?.[C.wi+1])return toast('There is no next word on this line');
+  segOverride(C.s.id).merges.push({li:C.li,wi:C.wi});saveLocal();render()
+}
+function segRenameSelected(){
+  const C=segSelected();if(!C?.w)return toast('Select a word region first');
+  const v=(document.getElementById('seg-word-label')?.value||'').trim();
+  const O=segOverride(C.s.id),k=C.li+':'+C.wi;
+  O.labels[k]=v;delete O.charCuts[k];
+  S.segment.boundaryIndex=0;saveLocal();render()
+}
+function segResetOverrides(){
+  const C=segSelected();if(!C?.s)return;
+  delete S.segment.overrides[C.s.id];S.segment.selectedWordKey='0:0';saveLocal();render()
+}
+
+
+let SEG_VIEW=null;
+function initSegCanvas(){
+  const c=document.getElementById('seg-canvas');if(!c||c._segInit)return;c._segInit=true;
+  c.style.touchAction='none';
+  c.addEventListener('pointerdown',e=>{
+    if(!SEG_VIEW)return;
+    const r=c.getBoundingClientRect(),px=(e.clientX-r.left)*(c.width/r.width),py=(e.clientY-r.top)*(c.height/r.height);
+    const x=(px-SEG_VIEW.ox)/SEG_VIEW.sc+SEG_VIEW.b.x;
+    const y=(py-SEG_VIEW.oy)/SEG_VIEW.sc+SEG_VIEW.b.y;
+    let hit=null;
+    SEG_VIEW.seg.lines.forEach((L,li)=>L.words.forEach((w,wi)=>{
+      if(x>=w.b.x&&x<=w.b.x+w.b.w&&y>=w.b.y&&y<=w.b.y+w.b.h)hit={li,wi,w};
+    }));
+    if(!hit)return;
+    const key=hit.li+':'+hit.wi;
+    if(S.segment.selectedWordKey!==key){S.segment.selectedWordKey=key;S.segment.boundaryIndex=0;render();return}
+    if(!(hit.w.cutFractions||[]).length)return;
+    const frac=Math.max(.04,Math.min(.96,(x-hit.w.b.x)/Math.max(1,hit.w.b.w)));
+    let bi=0,best=Infinity;(hit.w.cutFractions||[]).forEach((v,i)=>{const d=Math.abs(v-frac);if(d<best){best=d;bi=i}});
+    S.segment.boundaryIndex=bi;
+    segSetBoundaryValue(frac*100,true);render();
+  });
+}
+
+function realStrokesFromSample(s){
+  const c=s.strokes||[],out=[];
+  c.forEach(st=>{const pts=(st.pts||[]).map(q=>({x:q[0]*500,y:q[1]*500,p:q[2]??.5}));if(pts.length>1)out.push({id:uid('tmp'),pts,b:boundsPts(pts)})});return out
+}
+
+/* ---------- canvas ---------- */
+function drawStroke(ctx,st,transform=null,color='#12171c',width=2.2){
+  const p=st.pts||[];if(p.length<2)return;ctx.save();ctx.strokeStyle=color;ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=width;ctx.beginPath();
+  p.forEach((q,i)=>{let x=q.x,y=q.y;if(transform){const z=transform(q);x=z.x;y=z.y}i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.restore()
+}
+function worldPoint(e,c){
+  const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;
+  const vx=(e.clientX-r.left)*sx,vy=(e.clientY-r.top)*sy;
+  return{x:(vx-S.canvas.panX)/S.canvas.zoom,y:(vy-S.canvas.panY)/S.canvas.zoom,p:e.pressure>0?e.pressure:.5}
+}
+function initInkCanvas(id='ink-canvas'){
+  const c=document.getElementById(id);if(!c||c._init)return;c._init=true;
+  const state=id==='test-canvas'?S.test:S.canvas;
+  const point=(e)=>{const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy,p:e.pressure>0?e.pressure:.5}};
+  let panStart=null;
+  c.addEventListener('pointerdown',e=>{
+    if(e.cancelable)e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}
+    if(id!=='test-canvas' && (S.canvas.tool==='pan'||(e.pointerType==='touch'&&!S.canvas.fingerDraw))){panStart={x:e.clientX,y:e.clientY,px:S.canvas.panX,py:S.canvas.panY};return}
+    const p=id==='test-canvas'?point(e):worldPoint(e,c);
+    state.active={id:uid('st'),pointerId:e.pointerId,pts:[p],b:null};paintCanvas(id)
+  });
+  c.addEventListener('pointermove',e=>{
+    if(e.cancelable)e.preventDefault();
+    if(panStart&&id!=='test-canvas'){S.canvas.panX=panStart.px+(e.clientX-panStart.x)*(c.width/c.getBoundingClientRect().width);S.canvas.panY=panStart.py+(e.clientY-panStart.y)*(c.height/c.getBoundingClientRect().height);paintCanvas(id);return}
+    if(!state.active||state.active.pointerId!==e.pointerId)return;
+    const evs=e.getCoalescedEvents?e.getCoalescedEvents():[e];
+    evs.forEach(q=>{const p=id==='test-canvas'?point(q):worldPoint(q,c),a=state.active.pts.at(-1);if(!a||Math.hypot(p.x-a.x,p.y-a.y)>.5)state.active.pts.push(p)});paintCanvas(id)
+  });
+  const up=e=>{if(panStart){panStart=null;saveLocal();return}if(!state.active||state.active.pointerId!==e.pointerId)return;const st=state.active;state.active=null;if(st.pts.length>1){st.b=boundsPts(st.pts);state.strokes.push(st)}paintCanvas(id)};
+  c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+  if(id!=='test-canvas')c.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();const z=S.canvas.zoom*(e.deltaY<0?1.1:.9);S.canvas.zoom=Math.max(.3,Math.min(4,z));paintCanvas(id)}else{S.canvas.panX-=e.deltaX;S.canvas.panY-=e.deltaY;paintCanvas(id)}},{passive:false});
+  paintCanvas(id)
+}
+function paintCanvas(id='ink-canvas',seg=null){
+  const c=document.getElementById(id);if(!c)return;const x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+  x.fillStyle='#edf0f3';for(let xx=20;xx<c.width;xx+=20)for(let yy=20;yy<c.height;yy+=20)x.fillRect(xx,yy,1,1);
+  const state=id==='test-canvas'?S.test:S.canvas,all=state.active?[...state.strokes,state.active]:state.strokes;
+  if(id==='test-canvas')all.forEach(st=>drawStroke(x,st));
+  else{
+    const tf=p=>({x:p.x*S.canvas.zoom+S.canvas.panX,y:p.y*S.canvas.zoom+S.canvas.panY});
+    all.forEach(st=>drawStroke(x,st,tf));
+  }
+  if(seg)drawSegOverlay(x,seg)
+}
+function drawSegOverlay(x,seg){
+  x.save();x.lineWidth=1.4;x.font='12px -apple-system,system-ui';
+  seg.lines.forEach((L,li)=>{
+    x.strokeStyle='#4f46e5';x.setLineDash([5,4]);x.strokeRect(L.b.x,L.b.y,L.b.w,L.b.h);x.setLineDash([]);x.fillStyle='#4f46e5';x.fillText(`line ${li+1}`,L.b.x,L.b.y-4);
+    L.words.forEach((w,wi)=>{const sk=String(S.segment.selectedWordKey||'0:0').split(':').map(Number);x.strokeStyle=(li===sk[0]&&wi===sk[1])?'#b91c1c':'#15803d';x.strokeRect(w.b.x,w.b.y,w.b.w,w.b.h);x.fillStyle='#15803d';x.fillText(w.text||`word ${wi+1}`,w.b.x,w.b.y+12);w.chars.forEach(ch=>{x.strokeStyle='rgba(180,83,9,.65)';x.strokeRect(ch.x,ch.y,ch.w,ch.h);if(ch.char){x.fillStyle='#b45309';x.fillText(ch.char,ch.x+2,ch.y+ch.h-3)}})})
+  });x.restore()
+}
+function canvasUndo(){S.canvas.strokes.pop();paintCanvas();saveLocal()}
+function canvasClear(){S.canvas.strokes=[];S.canvas.active=null;paintCanvas();saveLocal()}
+function zoomCanvas(f){S.canvas.zoom=Math.max(.3,Math.min(4,S.canvas.zoom*f));paintCanvas();saveLocal()}
+function homeCanvas(){S.canvas.panX=0;S.canvas.panY=0;S.canvas.zoom=1;paintCanvas();saveLocal()}
+
+/* ---------- guided collection ---------- */
+const SETS=[
+ ['lower','Lowercase alphabet'],['weak','Weakest letters (adaptive)'],['pairs','Common letter pairs'],['trios','Common letter trios'],['upper','Uppercase alphabet'],['digits','Digits 0–9'],
+ ['terms','Terms from loaded MedGraph'],['symbols','MedGraph symbols'],['shapes','Circles + arrows'],['custom','Custom phrase']
+];
+
+function letterTrainingPool(includeSynthetic=true){
+  return samples().filter(s=>
+    ['letter','letter_auto','letter_synthetic_context'].includes(s.category) &&
+    s.label && (includeSynthetic||!isSyntheticSample(s))
+  );
+}
+function letterModelReport(){
+  const alphabet=[...'abcdefghijklmnopqrstuvwxyz'];
+  const direct=samples().filter(s=>s.category==='letter'&&!isSyntheticSample(s)&&/^[a-z]$/i.test(String(s.label||'')));
+  const pool=letterTrainingPool(true);
+  return alphabet.map(ch=>{
+    const tests=direct.filter(s=>String(s.label).toLowerCase()===ch);
+    let correct=0,marginSum=0,confusions={};
+    tests.forEach(t=>{
+      const by={};
+      pool.forEach(p=>{
+        if(p.id===t.id||!p.sig?.length)return;
+        const lab=String(p.label||'').toLowerCase();
+        const sc=sigSim(t.sig,p.sig)*sampleWeight(p);
+        by[lab]=Math.max(by[lab]||0,sc);
+      });
+      const ranked=Object.entries(by).sort((a,b)=>b[1]-a[1]);
+      const top=ranked[0]||['',0], own=by[ch]||0;
+      const other=ranked.find(x=>x[0]!==ch)||['',0];
+      if(top[0]===ch)correct++;
+      else if(top[0])confusions[top[0]]=(confusions[top[0]]||0)+1;
+      marginSum+=own-other[1];
+    });
+    const acc=tests.length?correct/tests.length:0;
+    const margin=tests.length?marginSum/tests.length:-.15;
+    const sep=Math.max(0,Math.min(1,(margin+.08)/.35));
+    const coverage=Math.min(1,tests.length/10);
+    let confidence=tests.length ? (.58*acc+.24*sep+.18*coverage) : 0;
+    if(tests.length<3)confidence*=.65;
+    const confusion=Object.entries(confusions).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    return{ch,count:tests.length,accuracy:acc,margin,coverage,confidence,confusion};
+  });
+}
+function weakestLetters(limit=10){
+  return letterModelReport().slice().sort((a,b)=>a.confidence-b.confidence||a.count-b.count).slice(0,limit);
+}
+const FALLBACK_PAIRS=['th','he','in','er','an','re','on','at','en','nd','ti','es','or','te','of','ed','is','it','al','ar'];
+const FALLBACK_TRIOS=['the','and','ing','ion','tio','ent','ati','for','her','ter','hat','tha','ere','ate','his','con','res','ver','all','ons'];
+function commonNgrams(n,limit=30){
+  const counts=new Map();
+  const add=(text,w=1)=>{
+    String(text||'').toLowerCase().split(/[^a-z]+/).filter(Boolean).forEach(word=>{
+      if(word.length<n)return;
+      for(let i=0;i<=word.length-n;i++){
+        const g=word.slice(i,i+n);counts.set(g,(counts.get(g)||0)+w);
+      }
+    });
+  };
+  vocab().forEach(v=>add(v,2));
+  samples().filter(s=>['word','node'].includes(s.category)&&!isSyntheticSample(s)).forEach(s=>add(s.label,3));
+  const fallback=n===2?FALLBACK_PAIRS:FALLBACK_TRIOS;
+  fallback.forEach((g,i)=>{if(!counts.has(g))counts.set(g,Math.max(.01,1-i*.02))});
+  return [...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,limit).map(([gram,count])=>({gram,count}));
+}
+function chunkPool(n,includeSynthetic=true){
+  const cats=n===2?['letter_pair','pair_auto','pair_synthetic_context']:['letter_trio','trio_auto','trio_synthetic_context'];
+  return samples().filter(s=>cats.includes(s.category)&&String(s.label||'').length===n&&(includeSynthetic||!isSyntheticSample(s)));
+}
+function chunkGuess(strokes,n,allowSynthetic=true){
+  const sig=signature(strokes),by={};
+  chunkPool(n,allowSynthetic).forEach(s=>{
+    if(!s.sig?.length)return;
+    const sc=sigSim(sig,s.sig)*sampleWeight(s),lab=String(s.label||'').toLowerCase();
+    by[lab]=Math.max(by[lab]||0,sc);
+  });
+  return Object.entries(by).map(([label,score])=>({label,score,source:n===2?'pair model':'trio model'})).sort((a,b)=>b.score-a.score).slice(0,5);
+}
+
+function guidedItems(set,custom=''){
+  if(set==='lower')return[...'abcdefghijklmnopqrstuvwxyz'].map(x=>({category:'letter',label:x,prompt:`Write lowercase “${x}”`}));
+  if(set==='weak')return weakestLetters(10).map(x=>({category:'letter',label:x.ch,prompt:`Write lowercase “${x.ch}” · model confidence ${Math.round(x.confidence*100)}%${x.confusion?` · often confused with “${x.confusion}”`:''}`}));
+  if(set==='pairs')return commonNgrams(2,24).map(x=>({category:'letter_pair',label:x.gram,prompt:`Write the letter pair “${x.gram}” together`}));
+  if(set==='trios')return commonNgrams(3,20).map(x=>({category:'letter_trio',label:x.gram,prompt:`Write the letter trio “${x.gram}” together`}));
+  if(set==='upper')return[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map(x=>({category:'letter',label:x,prompt:`Write uppercase “${x}”`}));
+  if(set==='digits')return[...'0123456789'].map(x=>({category:'letter',label:x,prompt:`Write digit “${x}”`}));
+  if(set==='terms'){let a=vocab().slice();for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a.slice(0,40).map(x=>({category:'word',label:x,prompt:`Write the term:\\n${x}`}))}
+  if(set==='symbols')return[
+    {category:'definition',label:'::',prompt:'Write  ::'},
+    {category:'class',label:'[drug]',prompt:'Write  [drug]'},
+    {category:'class',label:'[disease]',prompt:'Write  [disease]'},
+    {category:'class',label:'[bacterium]',prompt:'Write  [bacterium]'},
+    {category:'class',label:'[virus]',prompt:'Write  [virus]'},
+    {category:'sequence_step',label:'1.',prompt:'Write  1.'},{category:'sequence_step',label:'2.',prompt:'Write  2.'},{category:'sequence_step',label:'3.',prompt:'Write  3.'},
+    {category:'relationship_label',label:'inhibits',prompt:'Write “inhibits”'},{category:'relationship_label',label:'activates',prompt:'Write “activates”'}
+  ];
+  if(set==='shapes')return[
+    {category:'node_enclosure',label:'circle',prompt:'Draw a circle around an imaginary node'},
+    {category:'node_enclosure',label:'box',prompt:'Draw a box around an imaginary node'},
+    ...['right','left','up','down','diag up-right','diag down-left'].map(d=>({category:'relationship_arrow',label:'relationship arrow',prompt:`Draw a RELATIONSHIP arrow pointing ${d}`})),
+    ...['right','down','diag down-right'].map(d=>({category:'sequence_arrow',label:'sequence arrow',prompt:`Draw a SEQUENCE / PROCEDURE arrow pointing ${d}`}))
+  ];
+  if(set==='custom'&&custom.trim())return[{category:'word',label:custom.trim().replace(/\n+/g,' '),prompt:`Write this phrase exactly:\\n${custom.trim()}`}];
+  return[]
+}
+function startGuided(){
+  const set=document.getElementById('guide-set').value,reps=Math.max(1,+document.getElementById('guide-reps').value||5),custom=document.getElementById('guide-custom')?.value||'';
+  const base=guidedItems(set,custom);if(!base.length){toast(set==='terms'?'Import a MedGraph with terms first':'Enter a custom phrase');return}
+  const q=[];for(let r=0;r<reps;r++)base.forEach(x=>q.push({...x,rep:r+1}));
+  S.guided={active:true,set,reps,queue:q,i:0,saved:0};S.canvas.strokes=[];render()
+}
+function guideCur(){return S.guided.queue[S.guided.i]}
+function skipGuide(){S.guided.i++;S.canvas.strokes=[];if(S.guided.i>=S.guided.queue.length)S.guided.active=false;saveLocal();render()}
+function stopGuide(){S.guided.active=false;S.canvas.strokes=[];saveLocal();render()}
+function saveGuide(){
+  const it=guideCur();if(!it||!S.canvas.strokes.length){toast('Draw the requested example first');return}
+  const sm=storeSample(it.category,it.label,S.canvas.strokes,{guided:true,rep:it.rep},'lab-real');
+  if(['word','node','relationship_label','definition','class','sequence_step'].includes(it.category))deriveLetters(sm,S.canvas.strokes,it.label);
+  S.guided.saved++;S.guided.i++;S.canvas.strokes=[];
+  if(S.guided.i>=S.guided.queue.length){S.guided.active=false;toast(`Guided set complete · ${S.guided.saved} saved`)}
+  saveLocal();render()
+}
+function saveManual(){
+  const cat=document.getElementById('manual-cat').value,label=(document.getElementById('manual-label').value||'').trim();
+  if(!S.canvas.strokes.length){toast('Write or draw something first');return}
+  if(!['node_enclosure','relationship_arrow','sequence_arrow'].includes(cat)&&!label){toast('Enter the label');return}
+  const sm=storeSample(cat,label||cat,S.canvas.strokes,{},'lab-real');
+  if(['word','node','relationship_label','definition','class','sequence_step'].includes(cat))deriveLetters(sm,S.canvas.strokes,label);
+  S.canvas.strokes=[];saveLocal();render();toast('Real example saved')
+}
+
+/* ---------- derive letters/context from word samples ---------- */
+function strokesInRect(strokes,r){
+  const out=[];strokes.forEach(st=>{const pts=(st.pts||[]).filter(p=>p.x>=r.x-2&&p.x<=r.x+r.w+2&&p.y>=r.y-3&&p.y<=r.y+r.h+3);if(pts.length>1)out.push({id:uid('seg'),pts,b:boundsPts(pts)})});return out
+}
+function deriveLetters(parent,strokes,label){
+  const seg=segmentInk(strokes,null,label),chars=[...String(label)].filter(ch=>/\p{L}|\d/u.test(ch));if(chars.length<2)return;
+  let idx=0;seg.lines.forEach(L=>L.words.forEach(w=>w.chars.forEach(ch=>{
+    const part=strokesInRect(seg.rotated,w.chars[w.chars.indexOf(ch)]||ch); // rotated-frame part
+    if(part.length&&ch.char){
+      const prev=chars[idx-1]||'',next=chars[idx+1]||'';
+      const a=storeSample('letter_auto',ch.char,part,{autoLetter:true,parentId:parent.id,prev,next,weight:.55},'word-segmentation');a.meta.weight=.55
+    }idx++
+  })))
+}
+
+/* ---------- recognizer ---------- */
+function editDistance(a,b){a=canon(a);b=canon(b);const n=b.length,d=Array.from({length:n+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let prev=d[0];d[0]=i;for(let j=1;j<=n;j++){const old=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=old}}return d[n]}
+function prototypeGuess(strokes,filter='text',allowSynthetic=true){
+  const sig=signature(strokes),arr=[];
+  samples().forEach(s=>{
+    if(!allowSynthetic&&isSyntheticSample(s))return;
+    if(filter==='letter'&&!['letter','letter_auto','letter_synthetic_context'].includes(s.category))return;
+    if(filter==='pair'&&!['letter_pair','pair_auto','pair_synthetic_context'].includes(s.category))return;
+    if(filter==='trio'&&!['letter_trio','trio_auto','trio_synthetic_context'].includes(s.category))return;
+    if(filter==='text'&&!['word','node','relationship_label','definition','class','sequence_step'].includes(s.category))return;
+    if(!s.sig?.length||!s.label)return;
+    const sc=sigSim(sig,s.sig)*sampleWeight(s);if(sc>.12)arr.push({label:s.label,score:sc,source:s.source})
+  });
+  arr.sort((a,b)=>b.score-a.score);const seen=new Set();return arr.filter(x=>{const k=canon(x.label);if(seen.has(k))return false;seen.add(k);return true}).slice(0,8)
+}
+function letterGuess(strokes,allowSynthetic=true){
+  return prototypeGuess(strokes,'letter',allowSynthetic).slice(0,4)
+}
+function recognizeWord(strokes,allowSynthetic=true){
+  const direct=prototypeGuess(strokes,'text',allowSynthetic);
+  const seg=segmentInk(strokes),parts=[];
+  seg.lines.forEach(L=>L.words.forEach(w=>{
+    const est=Math.max(1,Math.round(w.b.w/Math.max(10,w.b.h*.55)));
+    const cells=Array.from({length:est},(_,i)=>({
+      x:w.b.x+w.b.w*i/est,y:w.b.y,w:w.b.w/est,h:w.b.h
+    }));
+    const options=Array.from({length:est},()=>[]);
+    for(let i=0;i<est;i++){
+      const one=letterGuess(strokesInRect(seg.rotated,cells[i]),allowSynthetic);
+      one.slice(0,3).forEach(g=>options[i].push({len:1,text:g.label,score:Math.max(.03,g.score)}));
+      if(i+1<est){
+        const r=union([cells[i],cells[i+1]]),two=chunkGuess(strokesInRect(seg.rotated,r),2,allowSynthetic);
+        two.slice(0,2).forEach(g=>options[i].push({len:2,text:g.label,score:Math.max(.03,g.score*1.08)}));
+      }
+      if(i+2<est){
+        const r=union([cells[i],cells[i+1],cells[i+2]]),three=chunkGuess(strokesInRect(seg.rotated,r),3,allowSynthetic);
+        three.slice(0,2).forEach(g=>options[i].push({len:3,text:g.label,score:Math.max(.03,g.score*1.12)}));
+      }
+      if(!options[i].length)options[i].push({len:1,text:'?',score:.03});
+    }
+    let beam=[{i:0,text:'',log:0}],bestDone=null,guard=0;
+    while(beam.length&&guard++<50){
+      const done=beam.filter(b=>b.i>=est);
+      if(done.length){bestDone=done.sort((a,b)=>b.log-a.log)[0];break}
+      const next=[];
+      beam.forEach(b=>{
+        options[b.i].forEach(o=>{if(b.i+o.len<=est)next.push({i:b.i+o.len,text:b.text+o.text,log:b.log+Math.log(o.score)})});
+      });
+      next.sort((a,b)=>b.log-a.log);beam=next.slice(0,16);
+    }
+    if(bestDone?.text)parts.push(bestDone.text);
+  }));
+  const composed=parts.join(' ');
+  const out=[...direct];
+  if(composed.length>1)out.push({label:composed,score:.42,source:'letters + pair/trio chunks'});
+  const V=vocab();
+  [composed,...direct.slice(0,5).map(x=>x.label)].filter(Boolean).forEach(raw=>{
+    V.forEach(v=>{const d=editDistance(raw,v),den=Math.max(canon(raw).length,canon(v).length,1),sc=1-d/den;if(sc>.45)out.push({label:v,score:.45+sc*.5,source:'MedGraph vocabulary'})})
+  });
+  out.sort((a,b)=>b.score-a.score);const seen=new Set();return out.filter(x=>{const k=canon(x.label);if(seen.has(k))return false;seen.add(k);return true}).slice(0,8)
+}
+
+/* ---------- generator ---------- */
+function charPool(ch,prev='',next=''){
+  let a=samples().filter(s=>['letter','letter_auto'].includes(s.category)&&String(s.label).toLowerCase()===String(ch).toLowerCase());
+  a.sort((x,y)=>{
+    const cx=(x.meta?.prev===prev?2:0)+(x.meta?.next===next?2:0)+(x.category==='letter'?1:0)+(x.source!=='synthetic'?3:0);
+    const cy=(y.meta?.prev===prev?2:0)+(y.meta?.next===next?2:0)+(y.category==='letter'?1:0)+(y.source!=='synthetic'?3:0);
+    return cy-cx
+  });return a
+}
+function generateText(text,settings=S.gen){
+  const strokes=[],charParts=[];let x=20,y=35,lineH=82,coverage=0,needed=0,autoUsed=0;
+  const slant=(Math.random()*2-1)*(settings.slant||0)*Math.PI/180;
+  const sizeBase=62*(1+(Math.random()*2-1)*(settings.size||0)/100);
+  const chars=[...text];
+  for(let i=0;i<chars.length;i++){
+    const ch=chars[i],prev=chars[i-1]||'',next=chars[i+1]||'';
+    if(ch==='\n'){x=20;y+=lineH;continue}
+    if(/\s/.test(ch)){x+=sizeBase*.42*(1+(Math.random()*2-1)*(settings.spacing||0)/100);continue}
+    needed++;
+    const pool=charPool(ch,prev,next);
+    if(!pool.length){x+=sizeBase*.55;continue}
+    coverage++;
+    const s=pool[Math.floor(Math.random()*Math.min(pool.length,Math.max(1,Math.ceil(pool.length*.65))))];
+    if(s.category==='letter_auto')autoUsed++;
+    const sc=sizeBase*(.78+Math.random()*.16),rot=slant+(Math.random()*2-1)*.035,j=(settings.jitter||0);
+    const letter=denormalize(s.strokes,x,y,sc,rot,1,1,j);
+    strokes.push(...letter);
+    charParts.push({
+      char:ch,
+      prev:/\p{L}|\d/u.test(prev)?prev:'',
+      next:/\p{L}|\d/u.test(next)?next:'',
+      strokes:letter.map(st=>({id:st.id,pts:st.pts.map(q=>({...q})),b:{...st.b}})),
+      sourceSampleId:s.id,
+      sourceCategory:s.category
+    });
+    const b=union(letter.map(sb)),advance=Math.max(sc*.38,b.w)+sc*.12*(1+(Math.random()*2-1)*(settings.spacing||0)/100);
+    x+=advance;
+    if(x>900){x=20;y+=lineH}
+  }
+  const distortion=Math.min(1,Math.abs(settings.slant||0)/20+(settings.size||0)/45+(settings.spacing||0)/45+(settings.jitter||0)/7);
+  const quality=Math.max(0,Math.min(1,(needed?coverage/needed:0)*.75+(1-distortion)*.25-(autoUsed/Math.max(1,coverage))*.08));
+  return{strokes,charParts,quality,coverage:needed?coverage/needed:0,autoUsed,needed}
+}
+function saveSyntheticContextLetters(parentWordSample,preview){
+  if(!preview?.charParts?.length)return 0;
+  let n=0;
+  preview.charParts.forEach((part,idx)=>{
+    if(!part?.strokes?.length||!part.char)return;
+    const sm=storeSample(
+      'letter_synthetic_context',
+      part.char,
+      part.strokes,
+      {
+        synthetic:true,
+        contextual:true,
+        parentWordId:parentWordSample.id,
+        charIndex:idx,
+        prev:part.prev||'',
+        next:part.next||'',
+        sourceSampleId:part.sourceSampleId||'',
+        sourceCategory:part.sourceCategory||'',
+        quality:preview.quality,
+        weight:.10
+      },
+      'synthetic-context'
+    );
+    sm.meta.weight=.10;
+    n++;
+  });
+  return n;
+}
+
+function makePreviews(){
+  const text=(document.getElementById('gen-text').value||'').trim();if(!text)return toast('Enter text to generate');
+  Object.assign(S.gen,{
+    text,count:+document.getElementById('gen-count').value||6,
+    slant:+document.getElementById('gen-slant').value||0,size:+document.getElementById('gen-size').value||0,
+    spacing:+document.getElementById('gen-spacing').value||0,jitter:+document.getElementById('gen-jitter').value||0
+  });
+  S.gen.previews=Array.from({length:S.gen.count},()=>generateText(text,S.gen));saveLocal();render()
+}
+function acceptSynthetic(i){
+  const p=S.gen.previews[i];if(!p?.strokes.length)return;
+  const sm=storeSample('word',S.gen.text,p.strokes,{synthetic:true,quality:p.quality,weight:.25,coverage:p.coverage},'synthetic');
+  sm.meta.weight=.25;
+  const letters=saveSyntheticContextLetters(sm,p);
+  saveLocal();S.gen.previews.splice(i,1);render();
+  toast(`Synthetic word saved at 0.25 weight + ${letters} exact contextual letters at 0.10`)
+}
+function acceptAllGood(){
+  let n=0,letters=0;
+  [...S.gen.previews].forEach(p=>{
+    if(p.quality>=.68&&p.strokes.length){
+      const s=storeSample('word',S.gen.text,p.strokes,{synthetic:true,quality:p.quality,weight:.25,coverage:p.coverage},'synthetic');
+      s.meta.weight=.25;
+      letters+=saveSyntheticContextLetters(s,p);
+      n++;
+    }
+  });
+  S.gen.previews=[];saveLocal();render();
+  toast(`${n} synthetic words + ${letters} exact contextual letters added`)
+}
+function augmentSample(id){
+  const s=samples().find(x=>x.id===id);if(!s)return;const n=+document.getElementById('aug-n')?.value||10;
+  for(let k=0;k<n;k++){
+    const base=sampleAsStrokes(s),b=union(base.map(sb)),cx=b.x+b.w/2,cy=b.y+b.h/2,rot=(Math.random()*2-1)*8*Math.PI/180,scale=.88+Math.random()*.24;
+    const cs=Math.cos(rot),sn=Math.sin(rot),out=base.map(st=>{const pts=st.pts.map(p=>{let dx=(p.x-cx)*scale,dy=(p.y-cy)*scale;return{x:cx+dx*cs-dy*sn+(Math.random()*2-1)*1.3,y:cy+dx*sn+dy*cs+(Math.random()*2-1)*1.3,p:p.p}});return{id:uid('aug'),pts,b:boundsPts(pts)}});
+    const sm=storeSample(s.category,s.label,out,{synthetic:true,augmentedFrom:s.id,quality:.82,weight:.25},'synthetic');sm.meta.weight=.25
+  }saveLocal();render();toast(`${n} augmentations added`)
+}
+function paintPreview(id,p){
+  const c=document.getElementById(id);if(!c)return;const x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+  if(!p?.strokes?.length){x.fillStyle='#b91c1c';x.fillText('Not enough trained letters to generate this text.',10,20);return}
+  const b=union(p.strokes.map(sb)),sc=Math.min((c.width-20)/Math.max(1,b.w),(c.height-20)/Math.max(1,b.h));
+  p.strokes.forEach(st=>drawStroke(x,st,q=>({x:10+(q.x-b.x)*sc,y:10+(q.y-b.y)*sc}),'#12171c',1.8))
+}
+
+/* ---------- validation ---------- */
+function addValidationFromCanvas(){
+  const truth=(document.getElementById('test-truth')?.value||'').trim();if(!truth||!S.test.strokes.length)return toast('Write a validation phrase and enter its true text');
+  S.validation.push({id:uid('val'),label:truth,strokes:normalizeStrokes(S.test.strokes),created:Date.now()});S.test.strokes=[];saveLocal();render();toast('Held-out validation example saved')
+}
+function valStrokes(v){return denormalize(v.strokes,0,0,500)}
+function evaluate(allowSynthetic){
+  if(!S.validation.length)return null;let right=0,rows=[];
+  S.validation.forEach(v=>{const g=recognizeWord(valStrokes(v),allowSynthetic),top=g[0]?.label||'';const ok=canon(top)===canon(v.label);if(ok)right++;rows.push({truth:v.label,guess:top,ok})});
+  return{acc:right/S.validation.length,rows}
+}
+function runTest(){
+  if(!S.test.strokes.length)return toast('Write something in the test pad');
+  const g=recognizeWord(S.test.strokes,true);S.test.result={guesses:g,seg:segmentInk(S.test.strokes)};render()
+}
+function clearTest(){S.test.strokes=[];S.test.result=null;render()}
+
+/* ---------- recommendations/coverage ---------- */
+function coverage(){
+  const real=samples().filter(s=>!isSyntheticSample(s)&&s.category==='letter'),
+        auto=samples().filter(s=>s.category==='letter_auto'),
+        syn=samples().filter(s=>isSyntheticSample(s)),
+        report=letterModelReport();
+  const chars=report.map(r=>({
+    ch:r.ch,r:real.filter(s=>String(s.label).toLowerCase()===r.ch).length,
+    a:auto.filter(s=>String(s.label).toLowerCase()===r.ch).length,
+    score:r.confidence*10,confidence:r.confidence,accuracy:r.accuracy,confusion:r.confusion
+  }));
+  return{chars,real:real.length,auto:auto.length,syn:syn.length,report}
+}
+function recs(){
+  const out=[];
+  weakestLetters(8).forEach(x=>out.push(
+    `Lowercase ${x.ch}: estimated confidence ${Math.round(x.confidence*100)}% · ${x.count} direct examples${x.confusion?` · most often confused with ${x.confusion}`:''}`
+  ));
+  const rel=samples().filter(s=>s.category==='relationship_arrow'&&!isSyntheticSample(s)).length,seq=samples().filter(s=>s.category==='sequence_arrow'&&!isSyntheticSample(s)).length;
+  if(rel<30)out.push(`Relationship arrows need more variety — ${rel}/30 useful baseline`);
+  if(seq<20)out.push(`Sequence arrows need more variety — ${seq}/20 useful baseline`);
+  const words=samples().filter(s=>['word','node'].includes(s.category)&&!isSyntheticSample(s)).length;if(words<25)out.push(`Add more real words/terms — ${words}/25 useful baseline`);
+  if(!S.validation.length)out.push('Add 5–10 held-out validation phrases so improvement can be measured');
+  return out.slice(0,12)
+}
+/* ---------- views ---------- */
+function tabBar(){document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<button class="tab ${S.tab===k?'on':''}" onclick="S.tab='${k}';saveLocal();render()">${l}</button>`).join('')}
+function dashHTML(){
+  const T=samples(),C=coverage(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,synt=T.filter(s=>isSyntheticSample(s)).length;
+  const ev0=evaluate(false),ev1=evaluate(true),weak=weakestLetters(10),pairs=commonNgrams(2,12),trios=commonNgrams(3,10);
+  return `<div class="panel"><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
+    <div class="metrics"><div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${real}</b><span>real labeled</span></div><div class="metric"><b>${C.auto}</b><span>letters inferred</span></div><div class="metric"><b>${synt}</b><span>synthetic</span></div><div class="metric"><b>${S.validation.length}</b><span>validation</span></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Letter model confidence</h3><span class="hint">leave-one-out estimate on your direct real letters</span></div>
+      <div class="tagrow">${C.report.map(x=>`<span class="pill ${x.confidence>=.75?'real':x.confidence>=.45?'auto':'syn'}" title="${x.count} direct examples · ${Math.round(x.accuracy*100)}% leave-one-out accuracy${x.confusion?' · confused with '+x.confusion:''}">${x.ch} ${Math.round(x.confidence*100)}%</span>`).join('')}</div>
+      <div class="hint" style="margin-top:8px">Lowest: ${weak.slice(0,5).map(x=>`${x.ch} ${Math.round(x.confidence*100)}%`).join(' · ')}</div>
+    </div>
+    <div class="panel"><div class="ph"><h3>Held-out word accuracy</h3></div>
+      ${ev0?`<div class="metrics" style="grid-template-columns:1fr 1fr"><div class="metric"><b>${Math.round(ev0.acc*100)}%</b><span>real only</span></div><div class="metric"><b>${Math.round(ev1.acc*100)}%</b><span>real + synthetic</span></div></div>`:'<div class="notice warn">No validation set yet. In Test, save examples that are never used for training.</div>'}
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Common pairs from your vocabulary</h3></div><div class="tagrow">${pairs.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div><div class="hint" style="margin-top:7px">Collect → Common letter pairs trains connected 2-letter chunks.</div></div>
+    <div class="panel"><div class="ph"><h3>Common trios from your vocabulary</h3></div><div class="tagrow">${trios.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div><div class="hint" style="margin-top:7px">Pair/trio prototypes now vote during word decoding alongside individual letters.</div></div>
+  </div>
+  <div class="panel"><div class="ph"><h3>Best next training</h3></div><ol>${recs().map(x=>`<li style="margin:6px 0">${esc(x)}</li>`).join('')}</ol></div>
+  <div class="panel"><div class="ph"><h3>Training weights</h3></div><div class="notice">
+    Direct real letters = <b>1.00</b>. Letters inferred from corrected real words = <b>0.55</b>. Corrected real pairs/trios = <b>0.45 / 0.40</b>. Synthetic whole words = <b>0.25</b>. Synthetic contextual letters = <b>0.10</b>.
+  </div></div>`
+}
+function collectHTML(){
+  const g=S.guided,it=guideCur(),pct=g.active?Math.round(g.i/Math.max(1,g.queue.length)*100):0;
+  return `<div class="split"><div>
+    <div class="panel"><div class="ph"><h2>Guided real-handwriting collection</h2><span class="hint">Apple Pencil · Surface Pen · touch · mouse</span></div>
+    ${g.active&&it?`<div class="prompt"><div class="eyebrow">Write this now</div><div class="big">${esc(it.prompt)}</div><div class="hint">${esc(it.category)} · ${g.i+1}/${g.queue.length} · repetition ${it.rep}/${g.reps}</div><div class="progress"><i style="width:${pct}%"></i></div></div>
+      <div class="actions"><button class="btn" onclick="saveGuide()">Save & next</button><button class="mini" onclick="skipGuide()">Skip</button><button class="mini danger" onclick="stopGuide()">Stop</button></div>`
+    :`<div class="grid2"><div class="fld"><label class="eyebrow">Training set</label><select id="guide-set" onchange="document.getElementById('custom-wrap').classList.toggle('hidden',this.value!=='custom')">${SETS.map(([k,l])=>`<option value="${k}" ${g.set===k?'selected':''}>${l}</option>`).join('')}</select></div><div class="fld"><label class="eyebrow">Examples per item</label><select id="guide-reps">${[3,5,10,20].map(n=>`<option ${g.reps===n?'selected':''}>${n}</option>`).join('')}</select></div></div>
+      <div id="custom-wrap" class="fld hidden"><label class="eyebrow">Custom phrase</label><textarea id="guide-custom" rows="2" placeholder="adaptive immunity"></textarea></div>
+      <button class="btn" onclick="startGuided()">Start guided training</button>`}
+    </div>
+    <div class="panel"><div class="canvasbar"><button class="mini ${S.canvas.tool==='pen'?'on':''}" onclick="S.canvas.tool='pen';render()">Pen</button><button class="mini ${S.canvas.tool==='pan'?'on':''}" onclick="S.canvas.tool='pan';render()">Pan</button>
+      <button class="mini" onclick="canvasUndo()">Undo</button><button class="mini" onclick="zoomCanvas(.85)">−</button><button class="mini" onclick="zoomCanvas(1.18)">+</button><button class="mini" onclick="homeCanvas()">Home</button>
+      <label class="hint"><input type="checkbox" style="width:auto" ${S.canvas.fingerDraw?'checked':''} onchange="S.canvas.fingerDraw=this.checked;saveLocal()"> finger draws</label>
+      <button class="mini danger" onclick="canvasClear()">Clear</button></div>
+      <div class="canvaswrap"><canvas class="ink" id="ink-canvas" width="1100" height="440"></canvas></div>
+      <div class="hint" style="margin-top:6px">The coordinate space can pan/zoom beyond the visible canvas; saved training examples are cropped to the strokes you drew.</div>
+    </div>
+    <div class="panel"><div class="ph"><h3>Manual save</h3></div><div class="grid2"><div class="fld"><label class="eyebrow">Train as</label><select id="manual-cat">${['letter','letter_pair','letter_trio','word','node','node_enclosure','relationship_arrow','sequence_arrow','relationship_label','definition','class','sequence_step','sequence_block'].map(x=>`<option value="${x}">${x.replaceAll('_',' ')}</option>`).join('')}</select></div><div class="fld"><label class="eyebrow">Label</label><input id="manual-label" placeholder="adaptive immunity, ::, inhibits…"></div></div><button class="btn" onclick="saveManual()">Save real example</button></div>
+  </div>
+  <div class="panel sticky"><div class="ph"><h3>Recent real samples</h3></div><div class="scrollbox"><table class="table"><tbody>${samples().filter(s=>s.source!=='synthetic').slice(-40).reverse().map(s=>`<tr><td><b>${esc(s.label)}</b><br><span class="hint">${esc(s.category)}</span></td><td><span class="pill ${s.category==='letter_auto'?'auto':'real'}">${s.category==='letter_auto'?'inferred':'real'}</span></td><td><button class="mini" onclick="S.segment.sampleId='${s.id}';S.tab='segment';render()">inspect</button></td></tr>`).join('')||'<tr><td>No samples yet.</td></tr>'}</tbody></table></div></div></div>`
+}
+function segmentHTML(){
+  const real=samples().filter(s=>!isSyntheticSample(s)&&['word','node','relationship_label','definition','class','sequence_step'].includes(s.category));
+  let s=samples().find(x=>x.id===S.segment.sampleId)||real.at(-1);if(s)S.segment.sampleId=s.id;
+  if(!s)return`<div class="panel"><div class="notice warn">Save at least one real word/term first.</div></div>`;
+  const C=currentSeg(),seg=C.seg,ang=C.ang;
+  const [selLi,selWi]=String(S.segment.selectedWordKey||'0:0').split(':').map(Number),sw=seg.lines[selLi]?.words?.[selWi];
+  const cuts=sw?.cutFractions||[],bi=Math.max(0,Math.min(Math.max(0,cuts.length-1),S.segment.boundaryIndex||0));
+  S.segment.boundaryIndex=bi;
+  const chars=sw?[...String(sw.text||'')].filter(ch=>/\p{L}|\d/u.test(ch)):[];
+  const left=chars[bi]||'',right=chars[bi+1]||'';
+  return `<div class="grid2"><div class="panel"><div class="ph"><h2>Segmentation editor</h2><span class="hint">purple = line · green/red = word · orange = letter boundary</span></div>
+    <div class="fld"><label class="eyebrow">Sample</label><select onchange="S.segment.sampleId=this.value;S.segment.angle=null;S.segment.selectedWordKey='0:0';S.segment.boundaryIndex=0;render()">${real.map(x=>`<option value="${x.id}" ${x.id===s.id?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div>
+    <div class="canvaswrap"><canvas class="ink" id="seg-canvas" width="900" height="440"></canvas></div>
+    <div class="hint" style="margin-top:6px"><b>Tap a word</b> to select it. Then tap where you want the nearest orange letter divider to move.</div>
+    <div class="fld" style="margin-top:10px"><label class="eyebrow">Deskew angle <span id="angle-val">${(ang*180/Math.PI).toFixed(1)}°</span></label><input type="range" min="-35" max="35" step=".5" value="${(ang*180/Math.PI).toFixed(1)}" oninput="S.segment.angle=+this.value;document.getElementById('angle-val').textContent=this.value+'°';paintSegmentLive()"></div>
+    <div class="actions"><button class="mini" onclick="S.segment.angle=${(C.auto*180/Math.PI).toFixed(3)};render()">Auto angle</button><button class="mini danger" onclick="segResetOverrides()">Reset all edits</button><button class="btn" onclick="rederiveSelected()">Rebuild letters + pairs + trios</button></div>
+  </div>
+  <div class="panel"><div class="ph"><h3>Detected structure</h3><span class="hint">select a word, then place every letter boundary yourself</span></div>
+    <div class="seglist">${seg.lines.map((L,li)=>`<div class="segrow"><b>Line ${li+1}</b><div class="hint">${L.words.length} word region(s)</div>${L.words.map((w,wi)=>`<button class="segrow ${li===selLi&&wi===selWi?'sel':''}" style="width:100%;text-align:left;margin-top:6px;cursor:pointer" onclick="S.segment.selectedWordKey='${li}:${wi}';S.segment.boundaryIndex=0;render()"><b>${esc(w.text||'unlabeled word')}</b><div class="tagrow">${w.chars.map(ch=>`<span class="pill auto">${esc(ch.char||'?')}</span>`).join('')}</div></button>`).join('')}</div>`).join('')}</div>
+    ${sw?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)">
+      <div class="eyebrow">Selected word region</div>
+      <div class="fld"><label class="hint">Correct word label first</label><input id="seg-word-label" value="${esc(sw.text||'')}"></div>
+      <div class="actions"><button class="mini" onclick="segRenameSelected()">Apply label</button>${seg.lines[selLi]?.words?.[selWi+1]?'<button class="mini" onclick="segMergeSelected()">Merge with next word</button>':''}<button class="mini danger" onclick="segResetWordBoundaries()">Reset letter boundaries</button></div>
+      ${cuts.length?`<div style="margin-top:12px">
+        <div class="fld"><label class="eyebrow">Which divider?</label>
+          <select onchange="segBoundarySelect(this.value)">${cuts.map((v,i)=>`<option value="${i}" ${i===bi?'selected':''}>${i+1}: ${esc(chars[i]||'?')} | ${esc(chars[i+1]||'?')}</option>`).join('')}</select>
+        </div>
+        <div class="fld"><label class="eyebrow">Divider position <span id="seg-boundary-value">${Math.round((cuts[bi]||.5)*100)}%</span></label>
+          <input type="range" min="4" max="96" step=".5" value="${((cuts[bi]||.5)*100).toFixed(1)}"
+            oninput="segSetBoundaryValue(this.value,false)" onchange="segSetBoundaryValue(this.value,true);render()">
+        </div>
+        <div class="actions"><button class="mini" onclick="segNudgeBoundary(-.01)">← 1%</button><button class="mini" onclick="segNudgeBoundary(.01)">1% →</button>
+          <span class="hint">Divider ${bi+1}/${cuts.length}: <b>${esc(left)} | ${esc(right)}</b></span></div>
+      </div>`:'<div class="notice warn" style="margin-top:10px">This region has fewer than 2 labeled characters. Correct its label first.</div>'}
+    </div>`:''}
+    <div class="notice" style="margin-top:10px"><b>How it works:</b> the lab finds lines and words first. Because you already told it the word label, it knows how many letters there must be. It starts with approximate orange dividers, but you can now move every divider directly. Those corrected regions are what get saved as inferred letters, pairs, and trios.</div>
+  </div></div>`
+}
+function paintSegmentLive(){
+  const C=currentSeg();if(!C)return;const c=document.getElementById('seg-canvas');if(!c)return;
+  initSegCanvas();
+  const R=rotateStrokes(C.st,-C.ang,C.seg.cx,C.seg.cy),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+  const b=union(R.map(sb)),sc=Math.min((c.width-40)/Math.max(1,b.w),(c.height-40)/Math.max(1,b.h)),ox=20,oy=20,tf=q=>({x:ox+(q.x-b.x)*sc,y:oy+(q.y-b.y)*sc});
+  R.forEach(st=>drawStroke(x,st,tf,'#12171c',1.9));
+  const seg2=JSON.parse(JSON.stringify(C.seg));seg2.lines.forEach((L,li)=>{L.b={x:ox+(L.b.x-b.x)*sc,y:oy+(L.b.y-b.y)*sc,w:L.b.w*sc,h:L.b.h*sc};L.words.forEach((w,wi)=>{w.b={x:ox+(w.b.x-b.x)*sc,y:oy+(w.b.y-b.y)*sc,w:w.b.w*sc,h:w.b.h*sc};w.chars.forEach(ch=>{ch.x=ox+(ch.x-b.x)*sc;ch.y=oy+(ch.y-b.y)*sc;ch.w*=sc;ch.h*=sc})})});
+  drawSegOverlay(x,seg2);
+  SEG_VIEW={b,sc,ox,oy,seg:C.seg};
+}
+function rederiveSelected(){
+  const C=currentSeg();if(!C)return;
+  for(let i=samples().length-1;i>=0;i--){
+    const s=samples()[i];
+    if(['letter_auto','pair_auto','trio_auto'].includes(s.category)&&s.meta?.parentId===C.s.id)samples().splice(i,1);
+  }
+  let globalChars=[...C.s.label].filter(ch=>/\p{L}|\d/u.test(ch)),globalIdx=0,letters=0,pairs=0,trios=0;
+  C.seg.lines.forEach(L=>L.words.forEach(w=>{
+    const wc=w.chars||[];
+    wc.forEach(ch=>{
+      const part=strokesInRect(C.seg.rotated,ch);
+      if(part.length&&ch.char){
+        const a=storeSample('letter_auto',ch.char,part,{
+          autoLetter:true,parentId:C.s.id,prev:globalChars[globalIdx-1]||'',next:globalChars[globalIdx+1]||'',
+          weight:.55,segmentationCorrected:true
+        },'word-segmentation');a.meta.weight=.55;letters++;
+      }
+      globalIdx++;
+    });
+    for(let i=0;i+1<wc.length;i++){
+      const label=(wc[i].char||'')+(wc[i+1].char||''),r=union([wc[i],wc[i+1]]),part=strokesInRect(C.seg.rotated,r);
+      if(label.length===2&&part.length){const p=storeSample('pair_auto',label,part,{parentId:C.s.id,weight:.45,segmentationCorrected:true},'word-segmentation');p.meta.weight=.45;pairs++}
+    }
+    for(let i=0;i+2<wc.length;i++){
+      const label=(wc[i].char||'')+(wc[i+1].char||'')+(wc[i+2].char||''),r=union([wc[i],wc[i+1],wc[i+2]]),part=strokesInRect(C.seg.rotated,r);
+      if(label.length===3&&part.length){const t=storeSample('trio_auto',label,part,{parentId:C.s.id,weight:.40,segmentationCorrected:true},'word-segmentation');t.meta.weight=.40;trios++}
+    }
+  }));
+  saveLocal();render();toast(`Rebuilt ${letters} letters · ${pairs} pairs · ${trios} trios`)
+}
+function generateHTML(){
+  const real=samples().filter(s=>s.source!=='synthetic'&&['letter','letter_auto','word','node'].includes(s.category));
+  return `<div class="panel"><div class="ph"><h2>Personal handwriting generator</h2><span class="hint">recombines your real stroke templates; no remote model</span></div>
+  <div class="grid3"><div class="fld"><label class="eyebrow">Text to synthesize</label><textarea id="gen-text" rows="2">${esc(S.gen.text)}</textarea></div><div class="fld"><label class="eyebrow">Versions</label><select id="gen-count">${[4,6,10,20].map(n=>`<option ${S.gen.count===n?'selected':''}>${n}</option>`).join('')}</select></div><div class="fld"><label class="eyebrow">Synthetic weight</label><input value="0.25" disabled><span class="hint">real = 1.00 · whole synthetic word = 0.25 · synthetic contextual letter = 0.10</span></div></div>
+  <div class="grid4">
+    <div class="fld"><label class="eyebrow">Slant ±°</label><input id="gen-slant" type="number" value="${S.gen.slant}" min="0" max="25"></div>
+    <div class="fld"><label class="eyebrow">Size variation ±%</label><input id="gen-size" type="number" value="${S.gen.size}" min="0" max="35"></div>
+    <div class="fld"><label class="eyebrow">Spacing variation ±%</label><input id="gen-spacing" type="number" value="${S.gen.spacing}" min="0" max="35"></div>
+    <div class="fld"><label class="eyebrow">Stroke jitter px</label><input id="gen-jitter" type="number" step=".2" value="${S.gen.jitter}" min="0" max="5"></div>
+  </div><div class="actions"><button class="btn" onclick="makePreviews()">Generate previews</button>${S.gen.previews.length?'<button class="mini" onclick="acceptAllGood()">Accept all ≥68% quality</button>':''}</div></div>
+  ${S.gen.previews.length?`<div class="panel"><div class="ph"><h3>Generated candidates</h3></div><div class="previewgrid">${S.gen.previews.map((p,i)=>`<div class="previewitem"><canvas id="prev-${i}" width="520" height="170"></canvas><div class="actions" style="margin-top:6px"><span class="pill ${p.quality>=.68?'real':p.quality>=.5?'auto':'syn'}">quality ${Math.round(p.quality*100)}%</span><span class="hint">character coverage ${Math.round(p.coverage*100)}%</span><button class="mini" onclick="acceptSynthetic(${i})">Accept</button><button class="mini danger" onclick="S.gen.previews.splice(${i},1);render()">Reject</button></div></div>`).join('')}</div></div>`:''}
+  <div class="panel"><div class="ph"><h3>Augment an existing real example</h3><span class="hint">rotation, scale and point jitter while preserving the original label</span></div>
+  <div class="grid2"><div class="fld"><label class="eyebrow">Real sample</label><select id="aug-sample">${real.filter(s=>s.category!=='letter_auto').slice(-100).map(s=>`<option value="${s.id}">${esc(s.label)} · ${s.category}</option>`).join('')}</select></div><div class="fld"><label class="eyebrow">Variants</label><select id="aug-n">${[5,10,20].map(n=>`<option>${n}</option>`).join('')}</select></div></div><button class="btn ghost" onclick="augmentSample(document.getElementById('aug-sample').value)">Generate augmentations</button></div>`
+}
+function testHTML(){
+  const e0=evaluate(false),e1=evaluate(true),r=S.test.result;
+  return `<div class="grid2"><div class="panel"><div class="ph"><h2>Recognition test bench</h2><span class="hint">use this for new handwriting, not training samples</span></div>
+    <div class="canvaswrap"><canvas class="ink" id="test-canvas" width="900" height="360"></canvas></div>
+    <div class="fld" style="margin-top:8px"><label class="eyebrow">True text (optional)</label><input id="test-truth" value="${esc(S.test.truth||'')}" oninput="S.test.truth=this.value" placeholder="adaptive immunity"></div>
+    <div class="actions"><button class="btn" onclick="runTest()">Recognize</button><button class="mini" onclick="addValidationFromCanvas()">Save as held-out validation</button><button class="mini danger" onclick="clearTest()">Clear</button></div>
+    ${r?`<div class="notice" style="margin-top:10px"><b>Top guesses</b><ol>${r.guesses.map(g=>`<li>${esc(g.label)} <span class="hint">· ${Math.round(g.score*100)}% · ${esc(g.source)}</span></li>`).join('')||'<li>No confident guess</li>'}</ol></div>`:''}
+  </div>
+  <div><div class="panel"><div class="ph"><h3>Before vs after synthetic</h3></div>${e0?`<div class="metrics" style="grid-template-columns:1fr 1fr"><div class="metric"><b>${Math.round(e0.acc*100)}%</b><span>real only</span></div><div class="metric"><b>${Math.round(e1.acc*100)}%</b><span>real + synthetic</span></div></div><div class="hint" style="margin-top:7px">${S.validation.length} held-out sample(s)</div>`:'<div class="notice warn">Save held-out examples to measure whether synthetic training is actually helping.</div>'}</div>
+    <div class="panel"><div class="ph"><h3>Validation set</h3></div><div class="scrollbox"><table class="table"><tbody>${S.validation.map(v=>`<tr><td>${esc(v.label)}</td><td><button class="mini danger" onclick="S.validation=S.validation.filter(x=>x.id!=='${v.id}');saveLocal();render()">remove</button></td></tr>`).join('')||'<tr><td>Empty</td></tr>'}</tbody></table></div></div>
+  </div></div>`
+}
+function dataHTML(){
+  const T=samples(),byCat={};T.forEach(s=>byCat[s.category]=(byCat[s.category]||0)+1);
+  return `<div class="grid2"><div class="panel"><div class="ph"><h2>MedGraph compatibility</h2></div>
+    <div class="notice ${S.graph?'ok':'warn'}">${S.graph?`Loaded MedGraph with <b>${defs().length}</b> nodes and <b>${T.length}</b> handwriting samples.`:'No MedGraph is loaded. You can train standalone now and merge a training pack later.'}</div>
+    <div class="actions" style="margin-top:10px"><button class="btn" onclick="importClick()">Import MedGraph JSON</button><button class="btn ghost" onclick="exportMedGraph()">Export updated MedGraph JSON</button><button class="mini" onclick="exportPack()">Export training pack only</button></div>
+    <p class="hint">The lab preserves the rest of the MedGraph object and writes training back under <span class="kbd">whiteboard.training.samples</span>.</p>
+  </div>
+  <div class="panel"><div class="ph"><h3>Sample categories</h3></div><table class="table">${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join('')}</table></div></div>
+  <div class="panel"><div class="ph"><h3>All training samples</h3><span class="hint">${T.length} total</span></div><div class="scrollbox"><table class="table"><thead><tr><th>Label</th><th>Category</th><th>Source</th><th>Weight</th><th></th></tr></thead><tbody>${T.slice().reverse().map(s=>`<tr><td>${esc(s.label)}</td><td>${esc(s.category)}</td><td><span class="pill ${s.source==='synthetic'?'syn':s.category==='letter_auto'?'auto':'real'}">${esc(s.source||'unknown')}</span></td><td>${sampleWeight(s).toFixed(2)}</td><td><button class="mini danger" onclick="samples().splice(samples().findIndex(x=>x.id==='${s.id}'),1);saveLocal();render()">×</button></td></tr>`).join('')}</tbody></table></div></div>
+  <div class="panel"><div class="actions"><button class="mini danger" onclick="resetLab()">Reset local lab workspace</button></div></div>`
+}
+function render(){
+  tabBar();const a=document.getElementById('app');
+  a.innerHTML=S.tab==='dash'?dashHTML():S.tab==='collect'?collectHTML():S.tab==='segment'?segmentHTML():S.tab==='generate'?generateHTML():S.tab==='test'?testHTML():dataHTML();
+  if(S.tab==='collect'){initInkCanvas();paintCanvas()}
+  if(S.tab==='segment')setTimeout(paintSegmentLive,0);
+  if(S.tab==='generate')setTimeout(()=>S.gen.previews.forEach((p,i)=>paintPreview('prev-'+i,p)),0);
+  if(S.tab==='test'){initInkCanvas('test-canvas');paintCanvas('test-canvas')}
+}
+loadLocal();training();render();
+</script>
+<script>
+(function(){
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+  }
+})();
+</script>
+</body>
+</html>

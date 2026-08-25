@@ -23,3 +23,9 @@ On iOS, Save / Share uses the system share sheet when available; choose Save to 
 
 ## Offline
 After the PWA loads successfully once, the service worker caches the app shell so it can reopen offline. Browser-local MedGraph data is stored separately in localStorage.
+
+## Handwriting Lab v1.2
+- Letter confidence dashboard identifies weak/confused letters using leave-one-out testing.
+- Guided training adds Weakest letters, Common letter pairs, and Common letter trios.
+- Corrected real words produce inferred letters plus pair/trio samples.
+- Segment tab lets you move every character divider using a slider or by tapping the canvas.
