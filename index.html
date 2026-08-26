@@ -5950,7 +5950,7 @@ function whiteboardHTML(){
     ${pn?`<div class="wbedit">
       <div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div>
       <div class="grid3" style="margin-top:8px">
-        <div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type/Scribble"></div>
+        <div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div>
         <div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div>
       </div>
@@ -5965,7 +5965,7 @@ function whiteboardHTML(){
       ${(!pa.from||!pa.to)?`<div class="hint">The arrow shape is recognized, but its tail/head are not close enough to two linked nodes yet.</div>`:''}
     </div>`:''}
     ${sel?`<div class="wbedit"><div class="eyebrow">Selected handwriting</div><div class="grid3" style="margin-top:8px">
-      <div class="fld"><label class="eyebrow">Node name</label><input id="wb-name" value="${esc(selGuess)}" placeholder="auto guess, Scribble, or type" autocomplete="off"></div>
+      <div class="fld"><label class="eyebrow">Node name</label><input id="wb-name" value="${esc(selGuess)}" placeholder="auto guess — or type ANY new word/phrase" autocomplete="off"></div>
       <div class="fld"><label class="eyebrow">Class</label><select id="wb-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${sel.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbConvertSelection()">Create / link node</button><button class="mini" onclick="wbRecognizeSelection()">Recognize again</button></div>
       </div>${sel.alts&&sel.alts.length?`<div class="wbalt">${sel.alts.slice(0,5).map((x,i)=>`<button onclick="wbUseSelectionAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
@@ -6147,7 +6147,7 @@ function wbSelectionPanel(sel){
   const nodeName=sel.nodeName||guess,defText=sel.defText!==undefined?sel.defText:guess,step=wbParseStepText(sel.stepText||guess),relGuess=wbRelationFromText(guess),clsGuess=wbClassFromText(guess)||sel.cls||'';
   const itemOpts=(cur)=>wbV4Data().nodes.filter(n=>n.graphId||n.kind==='step').map(n=>`<option value="${n.id}" ${n.id===cur?'selected':''}>${esc(wbItemText(n))}</option>`).join('');
   let inner='';
-  if(kind==='node') inner=`<div class="grid3"><div class="fld"><label class="eyebrow">Node name</label><input id="wb-sel-node" value="${esc(nodeName)}" placeholder="term"></div><div class="fld"><label class="eyebrow">Class (optional)</label><select id="wb-sel-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${(sel.cls||clsGuess)===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div class="actions" style="border:0;margin:0;padding:18px 0 0"><button class="btn" onclick="wbCommitLassoNode()">Create / link node</button></div></div>`;
+  if(kind==='node') inner=`<div class="grid3"><div class="fld"><label class="eyebrow">Node name</label><input id="wb-sel-node" value="${esc(nodeName)}" placeholder="existing OR brand-new term"></div><div class="fld"><label class="eyebrow">Class (optional)</label><select id="wb-sel-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${(sel.cls||clsGuess)===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div class="actions" style="border:0;margin:0;padding:18px 0 0"><button class="btn" onclick="wbCommitLassoNode()">Create / link node</button></div></div>`;
   if(kind==='definition'){
     let target=sel.target||'' , body=defText;if(body.includes('::')){const a=body.split('::');if(!target)target=a.shift().trim();body=a.join('::').trim()}
     inner=`<div class="grid2"><div class="fld"><label class="eyebrow">Term being defined</label><input id="wb-def-target" value="${esc(target)}" placeholder="e.g. Vancomycin"></div><div class="fld"><label class="eyebrow">Definition / feature</label><textarea id="wb-def-text">${esc(body)}</textarea></div></div><div class="wbsyntax">${esc(target||'term')} :: ${esc(body||'definition')}</div><div class="actions"><button class="btn" onclick="wbCommitLassoDefinition()">Add :: definition</button></div>`;
@@ -6203,7 +6203,7 @@ function whiteboardHTML(){
       <button class="mini" onclick="wbUndoInk()">Undo ink</button><button class="mini" onclick="wbSaveSequence()">Save sequence connectors</button><button class="mini x" onclick="wbClearBoard()">Clear board</button>
     </div>
     <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
-    ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type/Scribble"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
+    ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
     ${pa?`<div class="wbedit"><div><b>Arrow detected:</b> <span class="mono">${pa.from?esc(wbItemText(wbNode(pa.from))):'?'}</span> → <span class="mono">${pa.to?esc(wbItemText(wbNode(pa.to))):'?'}</span> <span class="wbconf">shape ${Math.round((pa.score||0)*100)}%</span></div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Interpret arrow as</label><select id="wb-pending-kind" onchange="WB.pendingArrow.kind=this.value;render()"><option value="relationship" ${pa.kind!=='sequence'?'selected':''}>Relationship</option><option value="sequence" ${pa.kind==='sequence'?'selected':''}>Sequence / next step</option></select></div>${pa.kind==='sequence'?`<div class="fld"><label class="eyebrow">Meaning</label><div class="wbsyntax">previous step → next step</div></div>`:`<div class="fld"><label class="eyebrow">Relationship</label><select id="wb-pending-rel" onchange="WB.pendingArrow.rel=this.value">${wbRelOptions(pa.rel)}</select></div><div class="fld"><label class="eyebrow">Label guess</label><div class="wbsyntax">${esc(pa.labelText||'none')}</div></div>`}</div><div class="actions"><button class="btn" onclick="wbAcceptDetectedArrow()" ${(!pa.from||!pa.to)?'disabled':''}>${pa.kind==='sequence'?'Add sequence connector':'Add relationship'}</button><button class="mini" onclick="wbFlipDetectedArrow()">Flip direction</button>${pa.kind!=='sequence'?`<button class="mini" onclick="wbReadArrowLabel()">Re-read label</button>`:''}<button class="mini x" onclick="wbRejectDetectedArrow()">Not an arrow</button></div>${(!pa.from||!pa.to)?`<div class="hint">Link/lasso the endpoint items first, or use the Arrow tool after labeling them.</div>`:''}</div>`:''}
     ${sel?wbSelectionPanel(sel):''}
     ${gh?`<div class="wbedit"><b>Recent handwriting guess:</b> <span class="wbguess">${esc(gh.text||'')}</span>${gh.engine?` <span class="hint">(${esc(gh.engine)})</span>`:''}<button class="mini" style="margin-left:8px" onclick="wbMakeGhostNode()">Make node</button><button class="mini x" onclick="WB.ghostText=null;render()">Dismiss</button></div>`:''}
@@ -6279,7 +6279,7 @@ function trainerHTML(){const T=wtSamples(),C=wtCounts(),recent=T.slice(-60).reve
       <button class="mini" onclick="wtUndo()">Undo stroke</button><button class="mini x" onclick="wtClear()">Clear pad</button>
     </div>
     <div class="trainercanvaswrap"><canvas id="trainer-canvas" width="1100" height="430"></canvas></div>
-    <div class="trainerhint"><b>How it learns:</b> draw one example, label it, save it. Confirming/lassoing ink on the real Whiteboard also adds training examples automatically. Text examples are matched locally before OCR; node circles and arrows also feed the geometric classifiers. Relationship arrows and sequence arrows are stored separately.</div>
+    <div class="notice" style="margin-bottom:8px"><b>Open vocabulary:</b> handwriting can resolve to a word that has never appeared in MedGraph. Existing terms only help rerank close guesses. Any node-name field also accepts a completely new typed word or phrase.</div><div class="trainerhint"><b>How it learns:</b> draw one example, label it, save it. Confirming/lassoing ink on the real Whiteboard also adds training examples automatically. Text examples are matched locally before OCR; node circles and arrows also feed the geometric classifiers. Relationship arrows and sequence arrows are stored separately.</div>
     <div class="wbedit" id="wt-test" style="display:${WT.lastResult?'block':'none'}">${WT.lastResult?esc(WT.lastResult):''}</div>
   </div><div>
     <div class="trainerstats"><div class="trainerstat"><b>${C.all}</b><span>examples</span></div><div class="trainerstat"><b>${C.text}</b><span>text</span></div><div class="trainerstat"><b>${C.shape}</b><span>shapes</span></div></div>
@@ -6853,6 +6853,182 @@ wtTestAdaptive = async function(){
   WT.lastResult=bits.join('<br><br>');
   const e=document.getElementById('wt-test');
   if(e){e.style.display='block';e.innerHTML=WT.lastResult}
+};
+
+
+
+/* ==================== V9 OPEN-VOCABULARY HANDWRITING ====================
+   Important behavior:
+   - A word does NOT have to already exist in MedGraph.
+   - Individual letters, trained pairs, and trained trios can compose a brand-new word.
+   - Existing MedGraph terms are suggestions/rerankers only; they no longer define
+     the set of legal answers.
+   - Manual text fields always accept completely new words/phrases.
+========================================================================= */
+
+function wtOpenSampleWeight(x){
+  if(x?.meta?.weight!=null)return +x.meta.weight;
+  if(x.category==='letter_auto')return .55;
+  if(x.category==='pair_auto')return .45;
+  if(x.category==='trio_auto')return .40;
+  if(x.category==='letter_synthetic_context')return .10;
+  if(x.category==='pair_synthetic_context')return .08;
+  if(x.category==='trio_synthetic_context')return .07;
+  return 1;
+}
+function wtOpenLetterSamples(){
+  return wtSamples().filter(x=>
+    ['letter','letter_auto','letter_synthetic_context'].includes(x.category) &&
+    [...String(x.label||'')].filter(ch=>/\p{L}|\d/u.test(ch)).length===1 &&
+    x.sig?.length
+  );
+}
+function wtOpenChunkSamples(n){
+  const cats=n===2
+    ? ['letter_pair','pair_auto','pair_synthetic_context']
+    : ['letter_trio','trio_auto','trio_synthetic_context'];
+  return wtSamples().filter(x=>
+    cats.includes(x.category) &&
+    [...String(x.label||'')].filter(ch=>/\p{L}|\d/u.test(ch)).length===n &&
+    x.sig?.length
+  );
+}
+function wtOpenRecognizeInk(strokes,samples,limit=4){
+  if(!strokes?.length||!samples?.length)return [];
+  const sig=wtSparseSignature(strokes),scoreBy={};
+  for(const x of samples){
+    let score=wtSigSim(sig,x.sig)*wtOpenSampleWeight(x);
+    const lab=String(x.label||'').toLowerCase();
+    if(!lab)continue;
+    scoreBy[lab]=Math.max(scoreBy[lab]||0,score);
+  }
+  return Object.entries(scoreBy)
+    .map(([label,score])=>({label,score}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,limit);
+}
+function wtOpenUnionStrokes(parts,a,b){
+  const out=[];
+  for(let i=a;i<b;i++)for(const st of (parts[i]||[]))out.push(st);
+  return out;
+}
+function wtOpenVocabularyDecode(strokes){
+  const parts=wtSegmentWordInk(strokes);
+  if(parts.length<2)return [];
+
+  const opts=Array.from({length:parts.length},()=>[]);
+  for(let i=0;i<parts.length;i++){
+    wtOpenRecognizeInk(parts[i],wtOpenLetterSamples(),4).forEach(x=>{
+      if(x.score>=.07)opts[i].push({len:1,text:x.label,score:x.score,source:'letter'});
+    });
+
+    if(i+1<parts.length){
+      const ink=wtOpenUnionStrokes(parts,i,i+2);
+      wtOpenRecognizeInk(ink,wtOpenChunkSamples(2),3).forEach(x=>{
+        if(x.score>=.06)opts[i].push({len:2,text:x.label,score:x.score*1.06,source:'pair'});
+      });
+    }
+    if(i+2<parts.length){
+      const ink=wtOpenUnionStrokes(parts,i,i+3);
+      wtOpenRecognizeInk(ink,wtOpenChunkSamples(3),3).forEach(x=>{
+        if(x.score>=.055)opts[i].push({len:3,text:x.label,score:x.score*1.10,source:'trio'});
+      });
+    }
+    if(!opts[i].length)opts[i].push({len:1,text:'?',score:.025,source:'unknown'});
+  }
+
+  let beam=[{i:0,text:'',log:0,chunks:0}];
+  let finished=[];
+  for(let guard=0;guard<48&&beam.length;guard++){
+    const next=[];
+    for(const b of beam){
+      if(b.i>=parts.length){finished.push(b);continue}
+      for(const o of opts[b.i]){
+        if(b.i+o.len>parts.length)continue;
+        next.push({
+          i:b.i+o.len,
+          text:b.text+o.text,
+          log:b.log+Math.log(Math.max(.015,o.score)),
+          chunks:b.chunks+(o.len>1?1:0)
+        });
+      }
+    }
+    next.sort((a,b)=>b.log-a.log);
+    beam=next.slice(0,40);
+  }
+  finished.push(...beam.filter(b=>b.i>=parts.length));
+  finished.sort((a,b)=>b.log-a.log);
+
+  const seen=new Set(),out=[];
+  for(const b of finished){
+    const text=String(b.text||'').replace(/\?+/g,'?');
+    const clean=[...text].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(clean<2)continue;
+    const key=text.toLowerCase();
+    if(seen.has(key))continue;seen.add(key);
+    const score=Math.exp(b.log/Math.max(1,parts.length));
+    out.push({label:text,score,source:b.chunks?'open letters + chunks':'open letters'});
+    if(out.length>=10)break;
+  }
+  return out;
+}
+function wtKnownTermReranks(rawCandidates){
+  const out=[];
+  for(const c of rawCandidates.slice(0,6)){
+    for(const v of wtVocabularyCandidates(c.label)){
+      /* Known terms are allowed to help, but not to erase the raw unseen spelling. */
+      out.push({
+        label:v.label,
+        score:Math.min(.92,v.score*.58+c.score*.42),
+        source:'known MedGraph term'
+      });
+    }
+  }
+  out.sort((a,b)=>b.score-a.score);
+  return out.slice(0,8);
+}
+
+/* Final recognizer wrapper: open spelling first, known vocabulary second. */
+const _wbRecognizeOpenVocabBase = wbRecognizeStrokes;
+wbRecognizeStrokes = async function(strokes,mode='node'){
+  if(!strokes||!strokes.length)return{guesses:[],engine:''};
+  const multi=wtLikelyMultiLetter(strokes);
+  if(!multi||mode==='letter')return _wbRecognizeOpenVocabBase(strokes,mode);
+
+  const open=wtOpenVocabularyDecode(strokes);
+  const composed=wtComposeLetters(strokes);
+  const base=await _wbRecognizeOpenVocabBase(strokes,mode);
+  const known=wtKnownTermReranks([...open,...composed]);
+
+  const merged=[];
+  const add=(label,score,source)=>{
+    label=String(label||'').trim();
+    if([...label].filter(ch=>/\p{L}|\d/u.test(ch)).length<2)return;
+    if(merged.some(x=>canon(x.label)===canon(label)))return;
+    merged.push({label,score:+score||0,source});
+  };
+
+  /* Brand-new spellings are legal and get first-class ranking. */
+  open.forEach(x=>add(x.label,Math.min(1,x.score+.16),x.source));
+  composed.forEach(x=>add(x.label,Math.min(.95,x.score+.10),'open trained letters'));
+
+  /* Browser/native handwriting guesses are also open vocabulary when available. */
+  (base.guesses||[]).forEach((g,i)=>{
+    const exists=!!resolve(g);
+    add(g,exists?.58-i*.025:.72-i*.025,exists?'existing-term suggestion':'open handwriting');
+  });
+
+  /* Existing graph vocabulary is only a correction/suggestion layer. */
+  known.forEach(x=>add(x.label,x.score,x.source));
+
+  /* Whole-word prototypes are useful but should not monopolize the answer list. */
+  wtWordPrototypeMatches(strokes,mode).slice(0,4).forEach(x=>add(x.label,Math.min(.68,x.score*.72),'seen-word prototype'));
+
+  merged.sort((a,b)=>b.score-a.score);
+  return{
+    guesses:merged.slice(0,10).map(x=>x.label),
+    engine:merged[0]?.source||base.engine||'open-vocabulary personal recognizer'
+  };
 };
 
 

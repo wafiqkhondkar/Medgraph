@@ -23,3 +23,16 @@ On iOS, Save / Share uses the system share sheet when available; choose Save to 
 
 ## Offline
 After the PWA loads successfully once, the service worker caches the app shell so it can reopen offline. Browser-local MedGraph data is stored separately in localStorage.
+
+## Handwriting Lab v1.2
+- Letter confidence dashboard identifies weak/confused letters using leave-one-out testing.
+- Guided training adds Weakest letters, Common letter pairs, and Common letter trios.
+- Corrected real words produce inferred letters plus pair/trio samples.
+- Segment tab lets you move every character divider using a slider or by tapping the canvas.
+
+## PWA v4 — open vocabulary
+- Whiteboard handwriting recognition is no longer restricted to words already in the graph.
+- Direct letter decoding, trained letter-pair chunks, and trained letter-trio chunks can compose unseen words.
+- Existing MedGraph terms are used only as reranking/correction suggestions.
+- Every node-name field explicitly accepts a brand-new typed word or phrase.
+- Handwriting Lab training automatically syncs into the main MedGraph browser storage when both pages are on the same PWA origin.
