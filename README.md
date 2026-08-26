@@ -36,3 +36,10 @@ After the PWA loads successfully once, the service worker caches the app shell s
 - Existing MedGraph terms are used only as reranking/correction suggestions.
 - Every node-name field explicitly accepts a brand-new typed word or phrase.
 - Handwriting Lab training automatically syncs into the main MedGraph browser storage when both pages are on the same PWA origin.
+
+## PWA v5 — shared handwriting + true open spelling
+- Ink Lab and Whiteboard share a dedicated `medgraph_handwriting_shared_v5` browser record instead of relying on the graph's storage adapter.
+- Whiteboard syncs the shared model before every recognition and shows the number of personal ink samples loaded.
+- Raw letter/pair/trio spellings are kept ahead of known-term suggestions. Existing graph vocabulary cannot remove unseen spellings.
+- Recent freehand guesses are editable: type any new word or phrase before creating the node.
+- Service worker uses network-first navigation so deploying a new HTML build is less likely to leave the installed PWA on stale code.

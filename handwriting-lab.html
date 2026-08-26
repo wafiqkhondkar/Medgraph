@@ -112,8 +112,9 @@ const canon=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^\p{L}\d]
 function saveLocal(){
   try{
     localStorage.setItem(LS,JSON.stringify(S));
+    labWriteShared();
     syncTrainingToMainMedGraph();
-    const el=document.getElementById('save-status');if(el)el.textContent='saved locally + synced to MedGraph';
+    const el=document.getElementById('save-status');if(el)el.textContent='saved locally + shared with Whiteboard';
   }catch(e){
     const el=document.getElementById('save-status');if(el)el.textContent='memory only';
   }
@@ -124,6 +125,7 @@ function loadLocal(){
     if(x)S={...S,...x,canvas:{...S.canvas,...(x.canvas||{}),active:null},test:{...S.test,...(x.test||{}),active:null}};
   }catch(e){}
   try{syncTrainingFromMainMedGraph()}catch(e){}
+  try{labPullShared()}catch(e){}
 }
 function graph(){return S.graph||S.standalone}
 function training(){const G=graph();G.whiteboard=G.whiteboard||{};G.whiteboard.training=G.whiteboard.training||{};G.whiteboard.training.samples=G.whiteboard.training.samples||[];G.whiteboard.training.lab=G.whiteboard.training.lab||{};return G.whiteboard.training}
@@ -154,6 +156,25 @@ function mergeTrainingSamples(dst,src){
   dst.lab={...(src.lab||{}),...(dst.lab||{})};
   return dst;
 }
+
+/* ---------- V5 dedicated shared handwriting store ---------- */
+const LAB_SHARED_KEY='medgraph_handwriting_shared_v5';
+const LAB_SHARED_CHANNEL='medgraph-handwriting-v5';
+let LAB_HWR_BC=null;
+function labSharedEmpty(){return{version:5,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}}}
+function labReadShared(){try{const x=JSON.parse(localStorage.getItem(LAB_SHARED_KEY)||'null');return x&&typeof x==='object'?x:labSharedEmpty()}catch(e){return labSharedEmpty()}}
+function labWriteShared(){
+  try{const sh=labReadShared();mergeTrainingSamples(sh,training());sh.version=5;sh.updatedAt=Date.now();localStorage.setItem(LAB_SHARED_KEY,JSON.stringify(sh));
+    if(LAB_HWR_BC)try{LAB_HWR_BC.postMessage({type:'training-updated',count:(sh.samples||[]).length})}catch(e){};return(sh.samples||[]).length
+  }catch(e){return 0}
+}
+function labPullShared(){try{const sh=labReadShared();mergeTrainingSamples(training(),sh);return(sh.samples||[]).length}catch(e){return 0}}
+function labInitShared(){
+  labPullShared();labWriteShared();
+  try{if('BroadcastChannel'in window){LAB_HWR_BC=new BroadcastChannel(LAB_SHARED_CHANNEL);LAB_HWR_BC.onmessage=e=>{if(e.data?.type==='training-updated'){labPullShared();const el=document.getElementById('save-status');if(el)el.textContent=`shared model · ${samples().length} samples`}}}}catch(e){}
+  window.addEventListener('storage',e=>{if(e.key===LAB_SHARED_KEY)labPullShared()});
+}
+
 function syncTrainingFromMainMedGraph(){
   try{
     const raw=localStorage.getItem(MEDGRAPH_MAIN_LS);if(!raw)return false;
@@ -885,7 +906,7 @@ function tabBar(){document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<
 function dashHTML(){
   const T=samples(),C=coverage(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,synt=T.filter(s=>isSyntheticSample(s)).length;
   const ev0=evaluate(false),ev1=evaluate(true),weak=weakestLetters(10),pairs=commonNgrams(2,12),trios=commonNgrams(3,10);
-  return `<div class="panel"><div class="notice" style="margin-bottom:10px"><b>Shared model:</b> on the PWA, handwriting samples are automatically shared with the main MedGraph whiteboard on the same site. Train letters/pairs/trios here, then reopen or refresh MedGraph to use them.</div><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
+  return `<div class="panel"><div class="notice" style="margin-bottom:10px"><b>Shared model:</b> the Ink Lab now writes to a dedicated shared handwriting store. The Whiteboard reads that store before every recognition, so it no longer depends on the graph storage backend. Train here, then return to Whiteboard; use “Sync handwriting” if you want to verify the count immediately.</div><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
     <div class="metrics"><div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${real}</b><span>real labeled</span></div><div class="metric"><b>${C.auto}</b><span>letters inferred</span></div><div class="metric"><b>${synt}</b><span>synthetic</span></div><div class="metric"><b>${S.validation.length}</b><span>validation</span></div></div>
   </div>
   <div class="grid2">
@@ -1050,7 +1071,7 @@ function render(){
   if(S.tab==='generate')setTimeout(()=>S.gen.previews.forEach((p,i)=>paintPreview('prev-'+i,p)),0);
   if(S.tab==='test'){initInkCanvas('test-canvas');paintCanvas('test-canvas')}
 }
-loadLocal();training();render();
+loadLocal();training();labInitShared();render();
 </script>
 <script>
 (function(){

@@ -5912,7 +5912,7 @@ function wbData(){
   ['arrowPos','arrowNeg','nodePos','nodeNeg'].forEach(k=>W.training[k]=W.training[k]||[]);
   return W;
 }
-function openWhiteboard(){view={mode:'whiteboard'};render()}
+function openWhiteboard(){try{mgHwrSyncIntoWhiteboard(true)}catch(e){};view={mode:'whiteboard'};render()}
 function wbSaveSoon(){clearTimeout(WB.saveTimer);WB.saveTimer=setTimeout(()=>{save();stats()},450)}
 function wbSetTool(t){WB.tool=t;WB.active=null;WB.lasso=null;WB.pan=null;render()}
 function wbNode(id){return wbData().nodes.find(n=>n.id===id)}
@@ -6037,7 +6037,7 @@ function wbGuessClass(name){const ex=resolve(name);if(ex){const d=byId(ex.id);re
 /* ---------- enclosure / node recognition ---------- */
 function wbEnclosureInfo(st){const p=st.pts||[],b=wbStrokeBounds(st),diag=Math.hypot(b.w,b.h),len=wbStrokeLen(st);if(p.length<8||diag<28||len<70)return null;const close=Math.hypot(p[0].x-p[p.length-1].x,p[0].y-p[p.length-1].y),closure=1-Math.min(1,close/Math.max(12,diag*.35)),aspect=Math.min(b.w,b.h)/Math.max(1,Math.max(b.w,b.h)),loop=Math.min(1,len/Math.max(1,Math.PI*diag));const feat=[closure,aspect,Math.min(1,loop),Math.min(1,diag/260)];let score=.46*closure+.24*aspect+.18*Math.min(1,loop)+.12*Math.min(1,diag/150)+.14*wbLearnBias('node',feat);return{score,feat,b,p}}
 function wbInsideEnclosure(info,boundaryId){const W=wbData();return W.strokes.filter(st=>st.id!==boundaryId&&!st.role&&wbInPoly(wbCenter(wbStrokeBounds(st)),info.p)&&wbStrokeBounds(st).w<info.b.w*.96&&wbStrokeBounds(st).h<info.b.h*.96)}
-async function wbMaybeEnclosure(st){if(!WB.smart||!WB.autoShapes)return false;const info=wbEnclosureInfo(st);if(!info||info.score<.68)return false;const inside=wbInsideEnclosure(info,st.id);if(!inside.length)return false;st.role='node-boundary-candidate';const token=uid('pn');WB.pendingNode={token,boundaryId:st.id,strokeIds:inside.map(x=>x.id),bounds:wbUnionBounds(inside.map(wbStrokeBounds)),name:'',alts:[],cls:'',engine:'',feat:info.feat,score:info.score};render();const rr=await wbRecognizeStrokes(inside,'node');if(!WB.pendingNode||WB.pendingNode.token!==token)return true;WB.pendingNode.alts=rr.guesses;WB.pendingNode.name=rr.guesses[0]||'';WB.pendingNode.cls=wbGuessClass(WB.pendingNode.name);WB.pendingNode.engine=rr.engine;render();return true}
+async function wbMaybeEnclosure(st){if(!WB.smart||!WB.autoShapes)return false;const info=wbEnclosureInfo(st);if(!info||info.score<.68)return false;const inside=wbInsideEnclosure(info,st.id);if(!inside.length)return false;st.role='node-boundary-candidate';const token=uid('pn');WB.pendingNode={token,boundaryId:st.id,strokeIds:inside.map(x=>x.id),bounds:wbUnionBounds(inside.map(wbStrokeBounds)),name:'',alts:[],cls:'',engine:'',feat:info.feat,score:info.score};render();const rr=await wbRecognizeStrokes(inside,'node');if(!WB.pendingNode||WB.pendingNode.token!==token)return true;WB.pendingNode.alts=rr.guesses;WB.pendingNode.openAlts=rr.openGuesses||rr.guesses;WB.pendingNode.knownAlts=rr.knownGuesses||[];WB.pendingNode.name=rr.guesses[0]||'';WB.pendingNode.cls=wbGuessClass(WB.pendingNode.name);WB.pendingNode.engine=rr.engine;render();return true}
 function wbUsePendingNodeAlt(i){if(!WB.pendingNode)return;const x=WB.pendingNode.alts&&WB.pendingNode.alts[i];if(!x)return;WB.pendingNode.name=x;WB.pendingNode.cls=wbGuessClass(x);render()}
 async function wbAcceptPendingNode(){const p=WB.pendingNode;if(!p)return;const inp=document.getElementById('wb-pnode-name'),sel=document.getElementById('wb-pnode-cls'),name=(inp&&inp.value||p.name||'').trim();if(!name)return toast('Need a node name');const gid=ensure(name,{}),d=byId(gid),cls=sel&&sel.value;if(cls&&d&&!d.cls)d.cls=cls;const b=p.bounds,pad=8,ids=[...p.strokeIds,p.boundaryId];wbData().nodes.push({id:uid('wbn'),graphId:gid,x:Math.max(0,b.x-pad),y:Math.max(26,b.y-pad),w:Math.max(54,b.w+pad*2),h:Math.max(28,b.h+pad*2),strokeIds:ids,created:Date.now(),auto:true});const bs=wbStroke(p.boundaryId);if(bs)bs.role='node-boundary';wbTrain('node',p.feat,true);WB.pendingNode=null;WB.ghostText=null;if(WB.pendingArrow){WB.pendingArrow.from=(wbNearestNode(WB.pendingArrow.tail,92)||{}).id||WB.pendingArrow.from;WB.pendingArrow.to=(wbNearestNode(WB.pendingArrow.tip,92)||{}).id||WB.pendingArrow.to}bump();await save();refresh();render();toast(`Linked ${termOf(gid)}`)}
 function wbRejectPendingNode(){const p=WB.pendingNode;if(!p)return;const st=wbStroke(p.boundaryId);if(st)st.role='';wbTrain('node',p.feat,false);WB.pendingNode=null;render()}
@@ -6055,10 +6055,10 @@ function wbRejectDetectedArrow(){const c=WB.pendingArrow;if(!c)return;(c.ids||[]
 
 /* ---------- live word guessing ---------- */
 function wbClusterRecent(latest){const W=wbData(),t=(latest.created||Date.now()),pool=W.strokes.filter(st=>!st.role&&!wbStrokeLinked(st.id)&&Math.abs((st.created||0)-t)<2600),cluster=[latest],seen=new Set([latest.id]);let changed=true;while(changed){changed=false;const B=wbUnionBounds(cluster.map(wbStrokeBounds));pool.forEach(st=>{if(seen.has(st.id))return;const b=wbStrokeBounds(st),ygap=Math.max(0,b.y-(B.y+B.h),B.y-(b.y+b.h)),xgap=Math.max(0,b.x-(B.x+B.w),B.x-(b.x+b.w));if(ygap<24&&xgap<34&&Math.max(B.h,b.h)<145){seen.add(st.id);cluster.push(st);changed=true}})}const B=wbUnionBounds(cluster.map(wbStrokeBounds));return B.w<520&&B.h<150?cluster:[]}
-function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length)return;const rr=await wbRecognizeStrokes(cl,'node');if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}},780)}
+function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length)return;const rr=await wbRecognizeStrokes(cl,'node');if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}},780)}
 async function wbMakeGhostNode(){const g=WB.ghostText;if(!g||!g.text)return;const gid=ensure(g.text,{}),d=byId(gid);if(g.cls&&d&&!d.cls)d.cls=g.cls;const b=g.bounds,pad=8;wbData().nodes.push({id:uid('wbn'),graphId:gid,x:Math.max(0,b.x-pad),y:Math.max(26,b.y-pad),w:Math.max(54,b.w+pad*2),h:Math.max(28,b.h+pad*2),strokeIds:[...g.strokeIds],created:Date.now(),auto:true});WB.ghostText=null;await save();refresh();render();toast(`Linked ${termOf(gid)}`)}
 async function wbSmartAfterStroke(st){if(!WB.smart)return;if(await wbMaybeEnclosure(st))return;if(await wbMaybeArrowGroup())return;wbScheduleWordGuess(st)}
-async function wbSmartScan(){if(WB.recognizing)return toast('Recognition already running');const W=wbData();for(const st of W.strokes.slice().reverse()){if(st.role)continue;if(await wbMaybeEnclosure(st))return;if(await wbMaybeArrowGroup())return}const last=[...W.strokes].reverse().find(st=>!st.role&&!wbStrokeLinked(st.id));if(last){const cl=wbClusterRecent(last),rr=await wbRecognizeStrokes(cl,'node');if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render();return}}toast(WB.hwrPipe||('createHandwritingRecognizer'in navigator)?'No new smart shape found':'Load handwriting AI to guess words; shape detection already works')}
+async function wbSmartScan(){if(WB.recognizing)return toast('Recognition already running');const W=wbData();for(const st of W.strokes.slice().reverse()){if(st.role)continue;if(await wbMaybeEnclosure(st))return;if(await wbMaybeArrowGroup())return}const last=[...W.strokes].reverse().find(st=>!st.role&&!wbStrokeLinked(st.id));if(last){const cl=wbClusterRecent(last),rr=await wbRecognizeStrokes(cl,'node');if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render();return}}toast(WB.hwrPipe||('createHandwritingRecognizer'in navigator)?'No new smart shape found':'Load handwriting AI to guess words; shape detection already works')}
 
 /* ---------- drawing ---------- */
 function wbDrawArrow(ctx,a,b,label,ghost){const ca={x:a.x+a.w/2,y:a.y+a.h/2},cb={x:b.x+b.w/2,y:b.y+b.h/2},dx=cb.x-ca.x,dy=cb.y-ca.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,sx=ca.x+ux*Math.min(a.w,a.h)*.45,sy=ca.y+uy*Math.min(a.w,a.h)*.45,ex=cb.x-ux*Math.min(b.w,b.h)*.45,ey=cb.y-uy*Math.min(b.w,b.h)*.45;ctx.save();ctx.globalAlpha=ghost?.5:1;ctx.strokeStyle='#334155';ctx.fillStyle='#334155';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.stroke();const ah=10;ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-ux*ah-uy*5,ey-uy*ah+ux*5);ctx.lineTo(ex-ux*ah+uy*5,ey-uy*ah-ux*5);ctx.closePath();ctx.fill();if(label){ctx.font='11px IBM Plex Mono, monospace';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillStyle='#475569';ctx.fillText(label,(sx+ex)/2,(sy+ey)/2-4)}ctx.restore()}
@@ -6176,7 +6176,7 @@ async function wbRecognizeSelection(){
   if(!WB.selection)return;const ids=[...WB.selection.strokeIds],st=ids.map(wbStroke).filter(Boolean),token=uid('sel');WB.selection.token=token;
   const rr=await wbRecognizeStrokes(st,'raw');if(!WB.selection||WB.selection.token!==token)return;
   let guesses=[...rr.guesses];if(guesses.length){const M=wbNodeMatches(guesses[0]);M.forEach(m=>{if(!guesses.some(g=>canon(g)===canon(m.term)))guesses.push(m.term)})}
-  WB.selection.alts=guesses;WB.selection.guess=guesses[0]||WB.selection.guess||'';WB.selection.cls=wbGuessClass(WB.selection.guess);WB.selection.engine=rr.engine;WB.selection.kind=wbGuessSelectionKind(WB.selection.guess);WB.selection._defaults=false;render()
+  WB.selection.alts=guesses;WB.selection.openAlts=rr.openGuesses||guesses;WB.selection.knownAlts=rr.knownGuesses||[];WB.selection.guess=guesses[0]||WB.selection.guess||'';WB.selection.cls=wbGuessClass(WB.selection.guess);WB.selection.engine=rr.engine;WB.selection.kind=wbGuessSelectionKind(WB.selection.guess);WB.selection._defaults=false;render()
 }
 function wbAddAnnotation(kind,bounds,text,strokeIds,extra){const W=wbV4Data();W.annotations.push({id:uid('wban'),kind,x:bounds.x,y:bounds.y,w:bounds.w,h:bounds.h,text:String(text||''),strokeIds:[...(strokeIds||[])],created:Date.now(),...(extra||{})})}
 function wbLinkBoardNode(gid,b,strokeIds,extra){const pad=8,n={id:uid('wbn'),graphId:gid||null,x:Math.max(0,b.x-pad),y:Math.max(26,b.y-pad),w:Math.max(54,b.w+pad*2),h:Math.max(28,b.h+pad*2),strokeIds:[...(strokeIds||[])],created:Date.now(),...(extra||{})};wbV4Data().nodes.push(n);return n}
@@ -6202,11 +6202,11 @@ function whiteboardHTML(){
       <label class="eyebrow">Default relation</label><select id="wb-rel" onchange="WB.rel=this.value;if(WB.pendingArrow)WB.pendingArrow.rel=this.value">${wbRelOptions(pa&&pa.rel)}</select>
       <button class="mini" onclick="wbUndoInk()">Undo ink</button><button class="mini" onclick="wbSaveSequence()">Save sequence connectors</button><button class="mini x" onclick="wbClearBoard()">Clear board</button>
     </div>
-    <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
+    <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><button class="mini" onclick="mgHwrSyncIntoWhiteboard(true);render()">Sync handwriting</button><span class="wbperf" id="wb-hwr-shared-count">${(wbData().training.samples||[]).length} personal ink samples loaded</span><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
     ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
     ${pa?`<div class="wbedit"><div><b>Arrow detected:</b> <span class="mono">${pa.from?esc(wbItemText(wbNode(pa.from))):'?'}</span> → <span class="mono">${pa.to?esc(wbItemText(wbNode(pa.to))):'?'}</span> <span class="wbconf">shape ${Math.round((pa.score||0)*100)}%</span></div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Interpret arrow as</label><select id="wb-pending-kind" onchange="WB.pendingArrow.kind=this.value;render()"><option value="relationship" ${pa.kind!=='sequence'?'selected':''}>Relationship</option><option value="sequence" ${pa.kind==='sequence'?'selected':''}>Sequence / next step</option></select></div>${pa.kind==='sequence'?`<div class="fld"><label class="eyebrow">Meaning</label><div class="wbsyntax">previous step → next step</div></div>`:`<div class="fld"><label class="eyebrow">Relationship</label><select id="wb-pending-rel" onchange="WB.pendingArrow.rel=this.value">${wbRelOptions(pa.rel)}</select></div><div class="fld"><label class="eyebrow">Label guess</label><div class="wbsyntax">${esc(pa.labelText||'none')}</div></div>`}</div><div class="actions"><button class="btn" onclick="wbAcceptDetectedArrow()" ${(!pa.from||!pa.to)?'disabled':''}>${pa.kind==='sequence'?'Add sequence connector':'Add relationship'}</button><button class="mini" onclick="wbFlipDetectedArrow()">Flip direction</button>${pa.kind!=='sequence'?`<button class="mini" onclick="wbReadArrowLabel()">Re-read label</button>`:''}<button class="mini x" onclick="wbRejectDetectedArrow()">Not an arrow</button></div>${(!pa.from||!pa.to)?`<div class="hint">Link/lasso the endpoint items first, or use the Arrow tool after labeling them.</div>`:''}</div>`:''}
     ${sel?wbSelectionPanel(sel):''}
-    ${gh?`<div class="wbedit"><b>Recent handwriting guess:</b> <span class="wbguess">${esc(gh.text||'')}</span>${gh.engine?` <span class="hint">(${esc(gh.engine)})</span>`:''}<button class="mini" style="margin-left:8px" onclick="wbMakeGhostNode()">Make node</button><button class="mini x" onclick="WB.ghostText=null;render()">Dismiss</button></div>`:''}
+    ${gh?`<div class="wbedit"><div><b>Recent handwriting:</b>${gh.engine?` <span class="hint">(${esc(gh.engine)})</span>`:''}</div><div class="grid3" style="margin-top:7px"><div class="fld"><label class="eyebrow">Word / phrase</label><input id="wb-ghost-name" value="${esc(gh.text||'')}" placeholder="type ANY new word or phrase"></div><div class="fld"><label class="eyebrow">Open spelling alternatives</label><div class="wbalt">${(gh.openAlts||gh.alts||[]).slice(0,4).map((x,i)=>`<button onclick="wbUseGhostAlt(${i})">${esc(x)}</button>`).join('')}</div></div><div class="actions" style="border:0;margin:0;padding-top:18px"><button class="btn" onclick="wbMakeGhostNode()">Create node</button><button class="mini x" onclick="WB.ghostText=null;render()">Dismiss</button></div></div></div>`:''}
     ${sn?`<div class="wbedit"><span class="wbdot"></span><b class="mono">${esc(wbItemText(sn))}</b> is linked to this ink.<button class="mini x" style="margin-left:10px" onclick="wbUnlinkNode('${sn.id}')">Remove board link</button></div>`:''}
     <div class="wbscroll" id="wb-scroll"><canvas id="wb-canvas" width="1600" height="1000"></canvas></div>
     <div class="wbstatus"><span><b id="wb-stat-strokes">${W.strokes.length}</b> ink strokes</span><span><b id="wb-stat-nodes">${W.nodes.length}</b> semantic items</span><span><b id="wb-stat-arrows">${W.arrows.length}</b> structured arrows</span><span>Lasso anything → explicitly label it. Numbered steps + sequence arrows are stored in <b>G.seqs</b>, not as biological relationships.</span></div>
@@ -6244,12 +6244,19 @@ function initWhiteboard(){const c=wbCanvas(),sc=document.getElementById('wb-scro
   c.addEventListener('pointercancel',()=>{WB.active=null;WB.lasso=null;WB.pan=null;wbRequestPaint()});c.addEventListener('lostpointercapture',e=>{if(WB.pan&&WB.pan.id===e.pointerId)WB.pan=null})
 }
 /* expensive free-word OCR waits until the pen is truly idle; geometry still scans immediately */
-function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length||cl.length>22)return;const run=()=>wbRecognizeStrokes(cl,'node').then(rr=>{if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}});if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else setTimeout(run,40)},1350)}
+function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length||cl.length>22)return;const run=()=>wbRecognizeStrokes(cl,'node').then(rr=>{if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}});if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else setTimeout(run,40)},1350)}
 async function wbSaveSequence(){const W=wbV4Data(),seqAr=W.arrows.filter(a=>a.kind==='sequence');let chain=[];
   if(seqAr.length){const out={},ind={};W.nodes.forEach(n=>{out[n.id]=[];ind[n.id]=0});seqAr.forEach(a=>{if(out[a.from]&&ind[a.to]!==undefined){out[a.from].push(a.to);ind[a.to]++}});if(Object.values(out).some(a=>a.length>1)||Object.values(ind).some(n=>n>1))return toast('Sequence connectors branch. A MedGraph sequence needs one linear order.');const starts=W.nodes.filter(n=>ind[n.id]===0&&out[n.id].length);if(starts.length!==1)return toast('Need one connected sequence chain');const seen=new Set();let n=starts[0];while(n&&!seen.has(n.id)){chain.push(n);seen.add(n.id);n=wbNode((out[n.id]||[])[0])}}
   else chain=W.nodes.filter(n=>n.kind==='step'&&n.stepOrder).sort((a,b)=>a.stepOrder-b.stepOrder);
   if(chain.length<2)return toast('Label at least two items as Sequence steps, or connect them with sequence arrows.');const suggested=chain.find(n=>n.seqName)?.seqName||WB.lastSeqName||'Whiteboard procedure',name=prompt('Sequence name:',suggested);if(!name||!name.trim())return;WB.lastSeqName=name.trim();const steps=chain.map((x,i)=>({order:i+1,event:wbItemText(x),links:x.graphId?[x.graphId]:wbStepLinks(wbItemText(x)),noLink:[]})),s=wbSequenceRecord(name.trim());s.steps=steps;await save();refresh();toast(`Saved ${steps.length}-step sequence`)}
 
+
+
+function wbUseGhostAlt(i){if(!WB.ghostText)return;const a=WB.ghostText.openAlts||WB.ghostText.alts||[],x=a[i];const el=document.getElementById('wb-ghost-name');if(x&&el)el.value=x}
+wbMakeGhostNode=async function(){
+  const g=WB.ghostText;if(!g)return;const el=document.getElementById('wb-ghost-name');const name=String(el?.value||g.text||'').trim();if(!name)return toast('Type or choose a word first');
+  const gid=ensure(name,{}),d=byId(gid);if(g.cls&&d&&!d.cls)d.cls=g.cls;wbLinkBoardNode(gid,g.bounds,g.strokeIds,{kind:'node',auto:true});WB.ghostText=null;await save();refresh();render();toast(`Created / linked ${termOf(gid)}`)
+};
 
 /* ==================== INK TRAINER ====================
    Personal examples are stored in G.whiteboard.training.samples. They are used
@@ -6257,7 +6264,7 @@ async function wbSaveSequence(){const W=wbV4Data(),seqAr=W.arrows.filter(a=>a.ki
    lasso confirmations also feed this set automatically. */
 let WT={strokes:[],active:null,tool:'pen',raf:0,lastResult:''};
 const WT_CATS=[
-  ['letter','Letter / symbol'],['word','Word / medical term'],['node','Node handwriting'],
+  ['letter','Letter / symbol'],['letter_pair','Letter pair'],['letter_trio','Letter trio'],['word','Word / medical term'],['node','Node handwriting'],
   ['node_enclosure','Node circle / box'],['relationship_arrow','Relationship arrow'],
   ['sequence_arrow','Sequence / process arrow'],['relationship_label','Relationship label'],
   ['definition','Definition / ::'],['class','Class / [drug]'],
@@ -6857,6 +6864,53 @@ wtTestAdaptive = async function(){
 
 
 
+
+/* ==================== V10 SHARED HANDWRITING STORE ====================
+   A dedicated localStorage record is used for the personal handwriting model.
+   This intentionally does not depend on MedGraph's graph-storage backend, so
+   the Ink Lab and Whiteboard see the same samples even if the graph itself is
+   using a different storage adapter. */
+const MG_HANDWRITING_SHARED_KEY='medgraph_handwriting_shared_v5';
+const MG_HANDWRITING_CHANNEL='medgraph-handwriting-v5';
+let MG_HWR_BC=null;
+function mgHwrSampleKey(s){
+  return s?.id||[s?.category||'',String(s?.label||'').toLowerCase(),s?.source||'',JSON.stringify(s?.sig||[]).slice(0,220)].join('|');
+}
+function mgHwrEmpty(){return{version:5,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}}}
+function mgHwrMerge(dst,src){
+  dst=dst||mgHwrEmpty();src=src||{};dst.samples=dst.samples||[];
+  const seen=new Set(dst.samples.map(mgHwrSampleKey));
+  for(const s of (src.samples||[])){const k=mgHwrSampleKey(s);if(!seen.has(k)){dst.samples.push(s);seen.add(k)}}
+  for(const k of ['arrowPos','arrowNeg','nodePos','nodeNeg']){
+    dst[k]=Array.isArray(dst[k])?dst[k]:[];const have=new Set(dst[k].map(x=>JSON.stringify(x)));
+    for(const x of (Array.isArray(src[k])?src[k]:[])){const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}}
+  }
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};dst.updatedAt=Date.now();dst.version=5;return dst;
+}
+function mgHwrReadShared(){
+  try{const x=JSON.parse(localStorage.getItem(MG_HANDWRITING_SHARED_KEY)||'null');return x&&typeof x==='object'?x:mgHwrEmpty()}catch(e){return mgHwrEmpty()}
+}
+function mgHwrWriteShared(T,announce=true){
+  try{
+    const merged=mgHwrMerge(mgHwrReadShared(),T||{});localStorage.setItem(MG_HANDWRITING_SHARED_KEY,JSON.stringify(merged));
+    if(announce&&MG_HWR_BC)try{MG_HWR_BC.postMessage({type:'training-updated',count:(merged.samples||[]).length})}catch(e){}
+    return merged;
+  }catch(e){return T||mgHwrEmpty()}
+}
+function mgHwrSyncIntoWhiteboard(writeBack=true){
+  const W=wbData();W.training=W.training||{};
+  const shared=mgHwrReadShared();mgHwrMerge(W.training,shared);
+  const merged=writeBack?mgHwrWriteShared(W.training,false):shared;
+  const n=(W.training.samples||[]).length, el=document.getElementById('wb-hwr-shared-count');
+  if(el)el.textContent=`${n} personal ink sample${n===1?'':'s'} loaded`;
+  return{count:n,sharedCount:(merged.samples||[]).length};
+}
+function mgHwrInitSync(){
+  mgHwrSyncIntoWhiteboard(true);
+  try{if('BroadcastChannel'in window){MG_HWR_BC=new BroadcastChannel(MG_HANDWRITING_CHANNEL);MG_HWR_BC.onmessage=e=>{if(e.data?.type==='training-updated'){mgHwrSyncIntoWhiteboard(false);}}}}catch(e){}
+  window.addEventListener('storage',e=>{if(e.key===MG_HANDWRITING_SHARED_KEY)mgHwrSyncIntoWhiteboard(false)});
+}
+
 /* ==================== V9 OPEN-VOCABULARY HANDWRITING ====================
    Important behavior:
    - A word does NOT have to already exist in MedGraph.
@@ -6988,49 +7042,87 @@ function wtKnownTermReranks(rawCandidates){
   return out.slice(0,8);
 }
 
-/* Final recognizer wrapper: open spelling first, known vocabulary second. */
-const _wbRecognizeOpenVocabBase = wbRecognizeStrokes;
+/* Final recognizer wrapper: open spelling is a separate first-class path. */
+async function mgRawHandwritingEngine(strokes){
+  let guesses=[],engine='';
+  try{guesses=await wbNativeRecognize(strokes);if(guesses.length)engine='browser on-device'}catch(e){}
+  if(!guesses.length&&WB.hwrPipe){try{guesses=await wbAIRecognize(strokes);if(guesses.length)engine='local TrOCR'}catch(e){}}
+  return{guesses:(guesses||[]).map(x=>String(x||'').trim()).filter(Boolean),engine};
+}
+function mgOpenCandidateSegCounts(strokes){
+  const b=wtWordBounds(strokes),direct=wtOpenLetterSamples();let aspects=[];
+  for(const s of direct){
+    const pts=(s.strokes||[]).flatMap(st=>(st.pts||[]).map(q=>Array.isArray(q)?{x:+q[0],y:+q[1]}:q));
+    if(!pts.length)continue;let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+    pts.forEach(p=>{x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)});
+    const a=(x1-x0)/Math.max(.05,y1-y0);if(isFinite(a)&&a>.08&&a<2.2)aspects.push(a);
+  }
+  aspects.sort((a,b)=>a-b);const a=aspects.length?aspects[Math.floor(aspects.length/2)]:.55;
+  const est=Math.max(2,Math.min(20,Math.round((b.w/Math.max(1,b.h))/Math.max(.24,a*.78))));
+  const counts=new Set([est-2,est-1,est,est+1,est+2,wtSegmentWordInk(strokes).length]);
+  return [...counts].filter(n=>n>=2&&n<=20).sort((a,b)=>Math.abs(a-est)-Math.abs(b-est));
+}
+function mgSliceWordInk(strokes,n){
+  const b=wtWordBounds(strokes),parts=[];
+  for(let i=0;i<n;i++){
+    const x0=b.x+b.w*i/n,x1=b.x+b.w*(i+1)/n,part=[];
+    for(const st of strokes){
+      const pts=(st.pts||[]).filter(p=>p.x>=x0-2&&p.x<=x1+2);
+      if(pts.length>1)part.push({...st,pts,b:wbBounds(pts)});
+    }
+    if(part.length)parts.push(part);else parts.push([]);
+  }
+  return parts;
+}
+function mgDecodeParts(parts){
+  if(parts.length<2)return[];const opts=Array.from({length:parts.length},()=>[]);
+  for(let i=0;i<parts.length;i++){
+    wtOpenRecognizeInk(parts[i],wtOpenLetterSamples(),4).forEach(x=>{if(x.score>=.035)opts[i].push({len:1,text:x.label,score:x.score})});
+    if(i+1<parts.length){const ink=wtOpenUnionStrokes(parts,i,i+2);wtOpenRecognizeInk(ink,wtOpenChunkSamples(2),3).forEach(x=>{if(x.score>=.03)opts[i].push({len:2,text:x.label,score:x.score*1.06})})}
+    if(i+2<parts.length){const ink=wtOpenUnionStrokes(parts,i,i+3);wtOpenRecognizeInk(ink,wtOpenChunkSamples(3),3).forEach(x=>{if(x.score>=.025)opts[i].push({len:3,text:x.label,score:x.score*1.10})})}
+    if(!opts[i].length)return[];
+  }
+  let beam=[{i:0,text:'',log:0}],done=[];
+  for(let guard=0;guard<50&&beam.length;guard++){
+    const next=[];for(const b of beam){if(b.i>=parts.length){done.push(b);continue}for(const o of opts[b.i])if(b.i+o.len<=parts.length)next.push({i:b.i+o.len,text:b.text+o.text,log:b.log+Math.log(Math.max(.01,o.score))})}
+    next.sort((a,b)=>b.log-a.log);beam=next.slice(0,48);
+  }
+  done.push(...beam.filter(x=>x.i>=parts.length));done.sort((a,b)=>b.log-a.log);
+  const seen=new Set(),out=[];for(const x of done){const k=canon(x.text);if(!k||seen.has(k))continue;seen.add(k);out.push({label:x.text,score:Math.exp(x.log/Math.max(1,parts.length)),source:'open spelling'});if(out.length>=6)break}return out;
+}
+function mgOpenSpellCandidates(strokes){
+  const all=[];all.push(...wtOpenVocabularyDecode(strokes));all.push(...wtComposeLetters(strokes));
+  for(const n of mgOpenCandidateSegCounts(strokes))all.push(...mgDecodeParts(mgSliceWordInk(strokes,n)));
+  const seen=new Map();for(const x of all){const k=canon(x.label);if(!k)continue;const old=seen.get(k);if(!old||x.score>old.score)seen.set(k,{...x,source:x.source||'open spelling'})}
+  return [...seen.values()].sort((a,b)=>b.score-a.score).slice(0,12);
+}
+const _wbRecognizeV10Fallback = wbRecognizeStrokes;
 wbRecognizeStrokes = async function(strokes,mode='node'){
-  if(!strokes||!strokes.length)return{guesses:[],engine:''};
+  if(!strokes||!strokes.length)return{guesses:[],openGuesses:[],knownGuesses:[],engine:''};
+  mgHwrSyncIntoWhiteboard(false);
   const multi=wtLikelyMultiLetter(strokes);
-  if(!multi||mode==='letter')return _wbRecognizeOpenVocabBase(strokes,mode);
+  if(!multi||mode==='letter')return _wbRecognizeV10Fallback(strokes,mode);
 
-  const open=wtOpenVocabularyDecode(strokes);
-  const composed=wtComposeLetters(strokes);
-  const base=await _wbRecognizeOpenVocabBase(strokes,mode);
-  const known=wtKnownTermReranks([...open,...composed]);
+  const rawOpen=mgOpenSpellCandidates(strokes);
+  const rawEngine=await mgRawHandwritingEngine(strokes);
+  for(const g of rawEngine.guesses){
+    const chars=[...g].filter(ch=>/\p{L}|\d/u.test(ch)).length;if(chars>=2&&!rawOpen.some(x=>canon(x.label)===canon(g)))rawOpen.push({label:g,score:.50,source:rawEngine.engine||'open handwriting'});
+  }
+  rawOpen.sort((a,b)=>b.score-a.score);
 
-  const merged=[];
-  const add=(label,score,source)=>{
-    label=String(label||'').trim();
-    if([...label].filter(ch=>/\p{L}|\d/u.test(ch)).length<2)return;
-    if(merged.some(x=>canon(x.label)===canon(label)))return;
-    merged.push({label,score:+score||0,source});
-  };
+  /* Known words are suggestions only. They can never delete the raw spelling list. */
+  const known=wtKnownTermReranks(rawOpen).filter(x=>resolve(x.label)?.exists);
+  const whole=wtWordPrototypeMatches(strokes,mode).filter(x=>resolve(x.label)?.exists).map(x=>({...x,source:'seen-word suggestion'}));
+  const knownAll=[...known,...whole].sort((a,b)=>b.score-a.score);
 
-  /* Brand-new spellings are legal and get first-class ranking. */
-  open.forEach(x=>add(x.label,Math.min(1,x.score+.16),x.source));
-  composed.forEach(x=>add(x.label,Math.min(.95,x.score+.10),'open trained letters'));
+  const openGuesses=[],knownGuesses=[],seen=new Set();
+  for(const x of rawOpen){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);openGuesses.push(x.label);if(openGuesses.length>=5)break}
+  for(const x of knownAll){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);knownGuesses.push(x.label);if(knownGuesses.length>=4)break}
 
-  /* Browser/native handwriting guesses are also open vocabulary when available. */
-  (base.guesses||[]).forEach((g,i)=>{
-    const exists=!!resolve(g);
-    add(g,exists?.58-i*.025:.72-i*.025,exists?'existing-term suggestion':'open handwriting');
-  });
-
-  /* Existing graph vocabulary is only a correction/suggestion layer. */
-  known.forEach(x=>add(x.label,x.score,x.source));
-
-  /* Whole-word prototypes are useful but should not monopolize the answer list. */
-  wtWordPrototypeMatches(strokes,mode).slice(0,4).forEach(x=>add(x.label,Math.min(.68,x.score*.72),'seen-word prototype'));
-
-  merged.sort((a,b)=>b.score-a.score);
-  return{
-    guesses:merged.slice(0,10).map(x=>x.label),
-    engine:merged[0]?.source||base.engine||'open-vocabulary personal recognizer'
-  };
+  /* No dictionary lookup is required. If training is sufficient, the first answers are raw spellings. */
+  const guesses=[...openGuesses,...knownGuesses];
+  return{guesses,openGuesses,knownGuesses,engine:openGuesses.length?'personal open-vocabulary model':(rawEngine.engine||'known-term suggestion'),trainingCount:wtOpenLetterSamples().length};
 };
-
 
 /* ==================== BOOT ==================== */
 /* Answer without touching the screen. A Bluetooth clicker or presenter remote
@@ -7071,7 +7163,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft'){e.preventDefault();navGo(-1)}
   if(e.key==='ArrowRight'){e.preventDefault();navGo(1)}
 });
-(async()=>{await load();seqLoadPrefs();refresh();render();applySidebar();})();
+(async()=>{await load();try{mgHwrInitSync()}catch(e){};seqLoadPrefs();refresh();render();applySidebar();})();
 </script>
 
 <script>
