@@ -109,11 +109,74 @@ let S={
 const uid=p=>p+'_'+Math.random().toString(36).slice(2,10);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const canon=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^\p{L}\d]+/gu,' ').trim().replace(/\s+/g,' ');
-function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S));document.getElementById('save-status').textContent='saved locally'}catch(e){document.getElementById('save-status').textContent='memory only'}}
-function loadLocal(){try{const x=JSON.parse(localStorage.getItem(LS)||'null');if(x)S={...S,...x,canvas:{...S.canvas,...(x.canvas||{}),active:null},test:{...S.test,...(x.test||{}),active:null}}}catch(e){}}
+function saveLocal(){
+  try{
+    localStorage.setItem(LS,JSON.stringify(S));
+    syncTrainingToMainMedGraph();
+    const el=document.getElementById('save-status');if(el)el.textContent='saved locally + synced to MedGraph';
+  }catch(e){
+    const el=document.getElementById('save-status');if(el)el.textContent='memory only';
+  }
+}
+function loadLocal(){
+  try{
+    const x=JSON.parse(localStorage.getItem(LS)||'null');
+    if(x)S={...S,...x,canvas:{...S.canvas,...(x.canvas||{}),active:null},test:{...S.test,...(x.test||{}),active:null}};
+  }catch(e){}
+  try{syncTrainingFromMainMedGraph()}catch(e){}
+}
 function graph(){return S.graph||S.standalone}
 function training(){const G=graph();G.whiteboard=G.whiteboard||{};G.whiteboard.training=G.whiteboard.training||{};G.whiteboard.training.samples=G.whiteboard.training.samples||[];G.whiteboard.training.lab=G.whiteboard.training.lab||{};return G.whiteboard.training}
 function samples(){return training().samples}
+
+/* ---------- Shared training with the main MedGraph PWA ---------- */
+const MEDGRAPH_MAIN_LS='medgraph_graph_v1';
+function labSampleKey(s){
+  return s?.id||[
+    s?.category||'',String(s?.label||'').toLowerCase(),s?.source||'',
+    JSON.stringify(s?.sig||[]).slice(0,180)
+  ].join('|');
+}
+function mergeTrainingSamples(dst,src){
+  dst.samples=dst.samples||[];src=src||{};
+  const seen=new Set(dst.samples.map(labSampleKey));
+  for(const s of (src.samples||[])){
+    const k=labSampleKey(s);
+    if(!seen.has(k)){dst.samples.push(s);seen.add(k)}
+  }
+  for(const k of ['arrowPos','arrowNeg','nodePos','nodeNeg']){
+    dst[k]=Array.isArray(dst[k])?dst[k]:[];
+    const have=new Set(dst[k].map(x=>JSON.stringify(x)));
+    for(const x of (Array.isArray(src[k])?src[k]:[])){
+      const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}
+    }
+  }
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};
+  return dst;
+}
+function syncTrainingFromMainMedGraph(){
+  try{
+    const raw=localStorage.getItem(MEDGRAPH_MAIN_LS);if(!raw)return false;
+    const mg=JSON.parse(raw);const mt=mg?.whiteboard?.training;if(!mt)return false;
+    const lt=training();mergeTrainingSamples(lt,mt);
+    /* If the lab was not explicitly loaded with another graph, use the live
+       MedGraph vocabulary too so common pairs/trios reflect current study terms. */
+    if(!S.graph&&Array.isArray(mg.defs))S.graph=mg;
+    return true;
+  }catch(e){return false}
+}
+function syncTrainingToMainMedGraph(){
+  try{
+    const raw=localStorage.getItem(MEDGRAPH_MAIN_LS);if(!raw)return false;
+    const mg=JSON.parse(raw);
+    mg.whiteboard=mg.whiteboard||{};
+    mg.whiteboard.training=mg.whiteboard.training||{};
+    mergeTrainingSamples(mg.whiteboard.training,training());
+    localStorage.setItem(MEDGRAPH_MAIN_LS,JSON.stringify(mg));
+    return true;
+  }catch(e){return false}
+}
+
 function defs(){return graph().defs||[]}
 function vocab(){const out=[];defs().forEach(d=>{if(d?.term)out.push(d.term);(d?.aliases||[]).forEach(a=>out.push(a))});return [...new Set(out)]}
 function toast(msg){let d=document.createElement('div');d.textContent=msg;d.style.cssText='position:fixed;z-index:9999;bottom:18px;left:50%;transform:translateX(-50%);background:#12171c;color:#fff;padding:8px 14px;border-radius:100px;font-weight:700;font-size:12px;box-shadow:0 5px 20px #0004';document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
@@ -822,7 +885,7 @@ function tabBar(){document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<
 function dashHTML(){
   const T=samples(),C=coverage(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,synt=T.filter(s=>isSyntheticSample(s)).length;
   const ev0=evaluate(false),ev1=evaluate(true),weak=weakestLetters(10),pairs=commonNgrams(2,12),trios=commonNgrams(3,10);
-  return `<div class="panel"><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
+  return `<div class="panel"><div class="notice" style="margin-bottom:10px"><b>Shared model:</b> on the PWA, handwriting samples are automatically shared with the main MedGraph whiteboard on the same site. Train letters/pairs/trios here, then reopen or refresh MedGraph to use them.</div><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
     <div class="metrics"><div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${real}</b><span>real labeled</span></div><div class="metric"><b>${C.auto}</b><span>letters inferred</span></div><div class="metric"><b>${synt}</b><span>synthetic</span></div><div class="metric"><b>${S.validation.length}</b><span>validation</span></div></div>
   </div>
   <div class="grid2">
