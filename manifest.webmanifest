@@ -1,7 +1,7 @@
 {
   "name": "MedGraph",
   "short_name": "MedGraph",
-  "description": "MedGraph medical knowledge graph with smart whiteboard and handwriting trainer.",
+  "description": "MedGraph medical knowledge graph with smart whiteboard and personal handwriting trainer.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

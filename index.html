@@ -1014,7 +1014,7 @@ function mergeGraph(inc){
     (I.arrows||[]).forEach(a=>{if(!nid[a.from]||!nid[a.to])return;W.arrows.push({...a,id:uid('wba'),from:nid[a.from],to:nid[a.to],relId:relMap[a.relId]||a.relId})});
     W.annotations=W.annotations||[];(I.annotations||[]).forEach(a=>W.annotations.push({...a,id:uid('wban'),x:(a.x||0)+off,y:(a.y||0)+off,strokeIds:(a.strokeIds||[]).map(x=>sid[x]).filter(Boolean),targetGraphId:map[a.targetGraphId]||a.targetGraphId}));
     W.training=W.training||{arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[]};
-    const T=I.training||{};['arrowPos','arrowNeg','nodePos','nodeNeg'].forEach(k=>{(T[k]||[]).slice(-20).forEach(v=>W.training[k].push(v));W.training[k]=W.training[k].slice(-50)});
+    const T=I.training||{};if(typeof mgHwrMergeV6==='function'){mgHwrMergeV6(MG_HWR_MEMORY,T);mgHwrPersistSoonV6()}['arrowPos','arrowNeg','nodePos','nodeNeg'].forEach(k=>{(T[k]||[]).slice(-20).forEach(v=>W.training[k].push(v));W.training[k]=W.training[k].slice(-50)});
     W.training.samples=W.training.samples||[];(T.samples||[]).slice(-120).forEach(x=>W.training.samples.push(x));W.training.samples=W.training.samples.slice(-300);
   }
   /* custom verbs were not carried at all */
@@ -6054,7 +6054,36 @@ async function wbAcceptDetectedArrow(){const c=WB.pendingArrow;if(!c)return;cons
 function wbRejectDetectedArrow(){const c=WB.pendingArrow;if(!c)return;(c.ids||[]).forEach(id=>{const st=wbStroke(id);if(st&&st.role==='arrow-candidate')st.role=''});wbTrain('arrow',c.feat,false);WB.pendingArrow=null;render()}
 
 /* ---------- live word guessing ---------- */
-function wbClusterRecent(latest){const W=wbData(),t=(latest.created||Date.now()),pool=W.strokes.filter(st=>!st.role&&!wbStrokeLinked(st.id)&&Math.abs((st.created||0)-t)<2600),cluster=[latest],seen=new Set([latest.id]);let changed=true;while(changed){changed=false;const B=wbUnionBounds(cluster.map(wbStrokeBounds));pool.forEach(st=>{if(seen.has(st.id))return;const b=wbStrokeBounds(st),ygap=Math.max(0,b.y-(B.y+B.h),B.y-(b.y+b.h)),xgap=Math.max(0,b.x-(B.x+B.w),B.x-(b.x+b.w));if(ygap<24&&xgap<34&&Math.max(B.h,b.h)<145){seen.add(st.id);cluster.push(st);changed=true}})}const B=wbUnionBounds(cluster.map(wbStrokeBounds));return B.w<520&&B.h<150?cluster:[]}
+function wbClusterRecent(latest){
+  const W=wbData(),latestTime=latest.created||Date.now();
+  /* Spatial continuity is the primary criterion. The old 2.6-second cutoff
+     discarded the beginning of longer words, which is why 8–15 letter writing
+     routinely became 2–3 letter guesses. */
+  const pool=W.strokes.filter(st=>
+    !st.role&&!wbStrokeLinked(st.id) &&
+    (latestTime-(st.created||latestTime))>=-500 &&
+    (latestTime-(st.created||latestTime))<60000
+  );
+  const cluster=[latest],seen=new Set([latest.id]);let changed=true;
+  while(changed){
+    changed=false;
+    const B=wbUnionBounds(cluster.map(wbStrokeBounds));
+    const baseH=Math.max(12,B.h);
+    pool.forEach(st=>{
+      if(seen.has(st.id))return;
+      const b=wbStrokeBounds(st);
+      const ygap=Math.max(0,b.y-(B.y+B.h),B.y-(b.y+b.h));
+      const xgap=Math.max(0,b.x-(B.x+B.w),B.x-(b.x+b.w));
+      const vCenter=Math.abs((b.y+b.h/2)-(B.y+B.h/2));
+      const charGap=Math.max(30,Math.min(58,baseH*.48));
+      if(ygap<Math.max(22,baseH*.32)&&vCenter<Math.max(55,baseH*.72)&&xgap<charGap){
+        seen.add(st.id);cluster.push(st);changed=true;
+      }
+    });
+  }
+  const B=wbUnionBounds(cluster.map(wbStrokeBounds));
+  return B.w<1400&&B.h<190?cluster:[];
+}
 function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length)return;const rr=await wbRecognizeStrokes(cl,'node');if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}},780)}
 async function wbMakeGhostNode(){const g=WB.ghostText;if(!g||!g.text)return;const gid=ensure(g.text,{}),d=byId(gid);if(g.cls&&d&&!d.cls)d.cls=g.cls;const b=g.bounds,pad=8;wbData().nodes.push({id:uid('wbn'),graphId:gid,x:Math.max(0,b.x-pad),y:Math.max(26,b.y-pad),w:Math.max(54,b.w+pad*2),h:Math.max(28,b.h+pad*2),strokeIds:[...g.strokeIds],created:Date.now(),auto:true});WB.ghostText=null;await save();refresh();render();toast(`Linked ${termOf(gid)}`)}
 async function wbSmartAfterStroke(st){if(!WB.smart)return;if(await wbMaybeEnclosure(st))return;if(await wbMaybeArrowGroup())return;wbScheduleWordGuess(st)}
@@ -6202,7 +6231,7 @@ function whiteboardHTML(){
       <label class="eyebrow">Default relation</label><select id="wb-rel" onchange="WB.rel=this.value;if(WB.pendingArrow)WB.pendingArrow.rel=this.value">${wbRelOptions(pa&&pa.rel)}</select>
       <button class="mini" onclick="wbUndoInk()">Undo ink</button><button class="mini" onclick="wbSaveSequence()">Save sequence connectors</button><button class="mini x" onclick="wbClearBoard()">Clear board</button>
     </div>
-    <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><button class="mini" onclick="mgHwrSyncIntoWhiteboard(true);render()">Sync handwriting</button><span class="wbperf" id="wb-hwr-shared-count">${(wbData().training.samples||[]).length} personal ink samples loaded</span><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
+    <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><button class="mini" onclick="mgHwrManualSync()">Sync handwriting</button><span class="wbperf" id="wb-hwr-shared-count">${typeof mgHwrCountV6==='function'?mgHwrCountV6():((wbData().training.samples||[]).length)} personal ink samples loaded</span><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
     ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
     ${pa?`<div class="wbedit"><div><b>Arrow detected:</b> <span class="mono">${pa.from?esc(wbItemText(wbNode(pa.from))):'?'}</span> → <span class="mono">${pa.to?esc(wbItemText(wbNode(pa.to))):'?'}</span> <span class="wbconf">shape ${Math.round((pa.score||0)*100)}%</span></div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Interpret arrow as</label><select id="wb-pending-kind" onchange="WB.pendingArrow.kind=this.value;render()"><option value="relationship" ${pa.kind!=='sequence'?'selected':''}>Relationship</option><option value="sequence" ${pa.kind==='sequence'?'selected':''}>Sequence / next step</option></select></div>${pa.kind==='sequence'?`<div class="fld"><label class="eyebrow">Meaning</label><div class="wbsyntax">previous step → next step</div></div>`:`<div class="fld"><label class="eyebrow">Relationship</label><select id="wb-pending-rel" onchange="WB.pendingArrow.rel=this.value">${wbRelOptions(pa.rel)}</select></div><div class="fld"><label class="eyebrow">Label guess</label><div class="wbsyntax">${esc(pa.labelText||'none')}</div></div>`}</div><div class="actions"><button class="btn" onclick="wbAcceptDetectedArrow()" ${(!pa.from||!pa.to)?'disabled':''}>${pa.kind==='sequence'?'Add sequence connector':'Add relationship'}</button><button class="mini" onclick="wbFlipDetectedArrow()">Flip direction</button>${pa.kind!=='sequence'?`<button class="mini" onclick="wbReadArrowLabel()">Re-read label</button>`:''}<button class="mini x" onclick="wbRejectDetectedArrow()">Not an arrow</button></div>${(!pa.from||!pa.to)?`<div class="hint">Link/lasso the endpoint items first, or use the Arrow tool after labeling them.</div>`:''}</div>`:''}
     ${sel?wbSelectionPanel(sel):''}
@@ -6244,7 +6273,7 @@ function initWhiteboard(){const c=wbCanvas(),sc=document.getElementById('wb-scro
   c.addEventListener('pointercancel',()=>{WB.active=null;WB.lasso=null;WB.pan=null;wbRequestPaint()});c.addEventListener('lostpointercapture',e=>{if(WB.pan&&WB.pan.id===e.pointerId)WB.pan=null})
 }
 /* expensive free-word OCR waits until the pen is truly idle; geometry still scans immediately */
-function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length||cl.length>22)return;const run=()=>wbRecognizeStrokes(cl,'node').then(rr=>{if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}});if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else setTimeout(run,40)},1350)}
+function wbScheduleWordGuess(st){clearTimeout(WB.wordTimer);if(!WB.autoText)return;WB.wordTimer=setTimeout(async()=>{if(WB.pendingNode||WB.pendingArrow||!wbStroke(st.id)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length||cl.length>90)return;const run=()=>wbRecognizeStrokes(cl,'node').then(rr=>{if(rr.guesses.length){WB.ghostText={strokeIds:cl.map(x=>x.id),bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}});if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else setTimeout(run,40)},1350)}
 async function wbSaveSequence(){const W=wbV4Data(),seqAr=W.arrows.filter(a=>a.kind==='sequence');let chain=[];
   if(seqAr.length){const out={},ind={};W.nodes.forEach(n=>{out[n.id]=[];ind[n.id]=0});seqAr.forEach(a=>{if(out[a.from]&&ind[a.to]!==undefined){out[a.from].push(a.to);ind[a.to]++}});if(Object.values(out).some(a=>a.length>1)||Object.values(ind).some(n=>n>1))return toast('Sequence connectors branch. A MedGraph sequence needs one linear order.');const starts=W.nodes.filter(n=>ind[n.id]===0&&out[n.id].length);if(starts.length!==1)return toast('Need one connected sequence chain');const seen=new Set();let n=starts[0];while(n&&!seen.has(n.id)){chain.push(n);seen.add(n.id);n=wbNode((out[n.id]||[])[0])}}
   else chain=W.nodes.filter(n=>n.kind==='step'&&n.stepOrder).sort((a,b)=>a.stepOrder-b.stepOrder);
@@ -7124,6 +7153,706 @@ wbRecognizeStrokes = async function(strokes,mode='node'){
   return{guesses,openGuesses,knownGuesses,engine:openGuesses.length?'personal open-vocabulary model':(rawEngine.engine||'known-term suggestion'),trainingCount:wtOpenLetterSamples().length};
 };
 
+
+/* ==================== V11 / PWA V6 HANDWRITING ====================
+   Canonical corpus: IndexedDB, shared by Ink Lab and Whiteboard.
+   This block deliberately overrides the v5 localStorage sharing layer.
+=================================================================== */
+const MG_HWR_V6_DB='medgraph_handwriting_v6';
+const MG_HWR_V6_STORE='kv';
+const MG_HWR_V6_TRAINING_KEY='training';
+let MG_HWR_V6_DBP=null;
+let MG_HWR_MEMORY={version:6,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+let MG_HWR_PROTO_CACHE=null;
+let MG_HWR_PERSIST_TIMER=null;
+
+function mgHwrCountV6(){return(MG_HWR_MEMORY.samples||[]).length}
+function mgHwrKeyV6(s){
+  if(s?.id)return'id:'+s.id;
+  return[s?.category||'',String(s?.label||'').toLowerCase(),s?.source||'',JSON.stringify(s?.sig||[]).slice(0,260)].join('|')
+}
+function mgHwrMergeV6(dst,src){
+  dst=dst||MG_HWR_MEMORY;src=src||{};dst.samples=Array.isArray(dst.samples)?dst.samples:[];
+  const seen=new Set(dst.samples.map(mgHwrKeyV6));
+  for(const s of(Array.isArray(src.samples)?src.samples:[])){
+    const k=mgHwrKeyV6(s);if(!seen.has(k)){dst.samples.push(s);seen.add(k)}
+  }
+  for(const k of['arrowPos','arrowNeg','nodePos','nodeNeg']){
+    dst[k]=Array.isArray(dst[k])?dst[k]:[];
+    const have=new Set(dst[k].map(x=>JSON.stringify(x)));
+    for(const x of(Array.isArray(src[k])?src[k]:[])){
+      const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}
+    }
+  }
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};dst.version=6;dst.updatedAt=Date.now();
+  MG_HWR_PROTO_CACHE=null;return dst
+}
+function mgHwrOpenDBV6(){
+  if(MG_HWR_V6_DBP)return MG_HWR_V6_DBP;
+  MG_HWR_V6_DBP=new Promise((resolve,reject)=>{
+    const r=indexedDB.open(MG_HWR_V6_DB,1);
+    r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(MG_HWR_V6_STORE))db.createObjectStore(MG_HWR_V6_STORE)};
+    r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)
+  });return MG_HWR_V6_DBP
+}
+async function mgHwrGetV6(key){
+  const db=await mgHwrOpenDBV6();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(MG_HWR_V6_STORE,'readonly'),rq=tx.objectStore(MG_HWR_V6_STORE).get(key);
+    rq.onsuccess=()=>resolve(rq.result);rq.onerror=()=>reject(rq.error)
+  })
+}
+async function mgHwrPutV6(key,value){
+  const db=await mgHwrOpenDBV6();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(MG_HWR_V6_STORE,'readwrite');tx.objectStore(MG_HWR_V6_STORE).put(value,key);
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('IndexedDB write aborted'))
+  })
+}
+function mgLegacyLabTrainingV6(){
+  try{
+    const x=JSON.parse(localStorage.getItem('medgraph_handwriting_lab_v1')||'null'),out={samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+    if(!x)return out;
+    mgHwrMergeV6(out,x.personalTraining);
+    mgHwrMergeV6(out,x.standalone?.whiteboard?.training);
+    mgHwrMergeV6(out,x.graph?.whiteboard?.training);
+    return out
+  }catch(e){return null}
+}
+function mgLegacySharedV5(){
+  try{return JSON.parse(localStorage.getItem('medgraph_handwriting_shared_v5')||'null')}catch(e){return null}
+}
+async function mgHwrPersistNowV6(){
+  MG_HWR_MEMORY.version=6;MG_HWR_MEMORY.updatedAt=Date.now();
+  await mgHwrPutV6(MG_HWR_V6_TRAINING_KEY,MG_HWR_MEMORY);
+  try{
+    if(MG_HWR_BC)MG_HWR_BC.postMessage({type:'training-updated',count:mgHwrCountV6()})
+  }catch(e){}
+  return mgHwrCountV6()
+}
+function mgHwrPersistSoonV6(){
+  clearTimeout(MG_HWR_PERSIST_TIMER);
+  MG_HWR_PERSIST_TIMER=setTimeout(()=>mgHwrPersistNowV6().catch(console.error),80)
+}
+async function mgHwrInitV6(){
+  const merged={version:6,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+  let stored=null;try{stored=await mgHwrGetV6(MG_HWR_V6_TRAINING_KEY)}catch(e){}
+  mgHwrMergeV6(merged,stored);
+  /* Recover every older location, especially the full trainer state that v5
+     accidentally hid when it switched training() to the main graph. */
+  mgHwrMergeV6(merged,mgLegacyLabTrainingV6());
+  mgHwrMergeV6(merged,mgLegacySharedV5());
+  mgHwrMergeV6(merged,G?.whiteboard?.training);
+  MG_HWR_MEMORY=merged;MG_HWR_PROTO_CACHE=null;
+  try{
+    await mgHwrPersistNowV6();
+    /* Once IndexedDB has the superset, stop duplicating hundreds of stroke
+       samples inside graph localStorage. Gesture arrays stay with the board. */
+    if(G?.whiteboard?.training)G.whiteboard.training.samples=[];
+    localStorage.removeItem('medgraph_handwriting_shared_v5');
+  }catch(e){console.warn('V6 handwriting migration retained legacy backups',e)}
+  try{
+    if('BroadcastChannel'in window){
+      MG_HWR_BC=new BroadcastChannel('medgraph-handwriting-v6');
+      MG_HWR_BC.onmessage=async e=>{if(e.data?.type==='training-updated')await mgHwrSyncIntoWhiteboard(false)}
+    }
+  }catch(e){}
+  window.addEventListener('storage',()=>{});
+  return mgHwrCountV6()
+}
+async function mgHwrSyncIntoWhiteboard(writeBack=false){
+  try{
+    const incoming=await mgHwrGetV6(MG_HWR_V6_TRAINING_KEY);
+    if(incoming)mgHwrMergeV6(MG_HWR_MEMORY,incoming)
+  }catch(e){}
+  if(writeBack)try{await mgHwrPersistNowV6()}catch(e){}
+  const n=mgHwrCountV6(),el=document.getElementById('wb-hwr-shared-count');
+  if(el)el.textContent=`${n} personal ink sample${n===1?'':'s'} loaded`;
+  return{count:n,sharedCount:n}
+}
+async function mgHwrManualSync(){
+  const r=await mgHwrSyncIntoWhiteboard(false);render();toast(`Loaded ${r.count} personal handwriting samples`)
+}
+mgHwrInitSync=function(){return mgHwrInitV6()};
+
+/* All text prototypes now come from the canonical shared model. */
+wtTraining=function(){return MG_HWR_MEMORY};
+wtSamples=function(){return MG_HWR_MEMORY.samples||[]};
+
+/* Remove the old 1,200-example cap and persist new Whiteboard training to IDB. */
+wtStoreExample=function(category,label,strokes,meta={},source='trainer'){
+  if(!strokes?.length)return null;
+  const sample={id:uid('wtex'),category,label:String(label||'').trim(),sig:wtSparseSignature(strokes),
+    strokes:wtCompactStrokes(strokes),meta,source,created:Date.now()};
+  wtSamples().push(sample);MG_HWR_PROTO_CACHE=null;mgHwrPersistSoonV6();return sample
+};
+wtDelete=function(id){
+  const T=wtSamples(),i=T.findIndex(x=>x.id===id);if(i>=0)T.splice(i,1);
+  MG_HWR_PROTO_CACHE=null;mgHwrPersistSoonV6();render()
+};
+wtResetTraining=async function(){
+  if(!confirm('Delete all personal Ink Trainer examples?\n\nThis does not delete your MedGraph or whiteboard notes.'))return;
+  MG_HWR_MEMORY={version:6,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+  MG_HWR_PROTO_CACHE=null;await mgHwrPersistNowV6();render()
+};
+
+/* Full JSON exports still contain the personal model even though runtime graph
+   storage no longer duplicates it. */
+function mgGraphWithTrainingV6(){
+  const o=structuredClone(G);o.whiteboard=o.whiteboard||{};o.whiteboard.training=structuredClone(MG_HWR_MEMORY);return o
+}
+exportText=function(){return JSON.stringify(mgGraphWithTrainingV6(),null,2)};
+handwritingExportObject=function(){
+  return{format:'medgraph-handwriting-training',version:6,exportedAt:new Date().toISOString(),
+    training:structuredClone(MG_HWR_MEMORY),annotations:structuredClone((G.whiteboard&&G.whiteboard.annotations)||[]),
+    metadata:{nodeCount:(G.defs||[]).length,sampleCount:mgHwrCountV6()}}
+};
+importTrainingText=function(txt){
+  let inc;try{inc=JSON.parse(txt)}catch(e){return toast('That is not valid JSON')}
+  const t=inc&&inc.format==='medgraph-handwriting-training'?inc.training:
+          inc&&inc.training?inc.training:inc&&inc.whiteboard&&inc.whiteboard.training?inc.whiteboard.training:null;
+  if(!t)return toast('That file does not contain MedGraph handwriting training');
+  mgHwrMergeV6(MG_HWR_MEMORY,t);mgHwrPersistNowV6().then(()=>{render();toast(`Handwriting merged · ${mgHwrCountV6()} samples`)})
+};
+
+/* ---------- fast bounded prototype index ---------- */
+function mgHwrProtoIndexV6(){
+  if(MG_HWR_PROTO_CACHE)return MG_HWR_PROTO_CACHE;
+  const idx={1:new Map(),2:new Map(),3:new Map()};
+  for(const s of wtSamples()){
+    const lab=String(s.label||'').toLowerCase(),n=[...lab].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    const ok=n===1?['letter','letter_auto','letter_synthetic_context'].includes(s.category):
+             n===2?['letter_pair','pair_auto','pair_synthetic_context'].includes(s.category):
+             n===3?['letter_trio','trio_auto','trio_synthetic_context'].includes(s.category):false;
+    if(!ok||!s.sig?.length)continue;
+    if(!idx[n].has(lab))idx[n].set(lab,[]);
+    idx[n].get(lab).push(s)
+  }
+  for(const n of[1,2,3])for(const [lab,a]of idx[n]){
+    a.sort((x,y)=>(wtOpenSampleWeight(y)-wtOpenSampleWeight(x))||((y.created||0)-(x.created||0)));
+    idx[n].set(lab,a.slice(0,8))
+  }
+  MG_HWR_PROTO_CACHE=idx;return idx
+}
+function mgRecognizeChunkV6(strokes,n,limit=5){
+  if(!strokes?.length)return[];const sig=wtSparseSignature(strokes),out=[];
+  for(const [label,arr]of mgHwrProtoIndexV6()[n]){
+    let best=0;for(const s of arr)best=Math.max(best,wtSigSim(sig,s.sig)*wtOpenSampleWeight(s));
+    if(best>0)out.push({label,score:best})
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,limit)
+}
+function mgLetterGeometryV6(){
+  const arr=[];
+  for(const s of wtSamples()){
+    if(!['letter','letter_auto'].includes(s.category)||[...String(s.label||'')].filter(ch=>/\p{L}|\d/u.test(ch)).length!==1)continue;
+    const pts=(s.strokes||[]).flatMap(st=>(st.pts||[]).map(q=>Array.isArray(q)?{x:+q[0],y:+q[1]}:q)).filter(p=>isFinite(p.x)&&isFinite(p.y));
+    if(!pts.length)continue;
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;pts.forEach(p=>{x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)});
+    const aspect=(x1-x0)/Math.max(.02,y1-y0);
+    if(isFinite(aspect)&&aspect>.08&&aspect<2.4)arr.push({aspect,strokes:(s.strokes||[]).length||1})
+  }
+  arr.sort((a,b)=>a.aspect-b.aspect);
+  const aspects=arr.map(x=>x.aspect),sc=arr.map(x=>x.strokes).sort((a,b)=>a-b);
+  return{aspect:aspects.length?aspects[Math.floor(aspects.length/2)]:.52,strokes:sc.length?sc[Math.floor(sc.length/2)]:1.5}
+}
+function mgCandidateLengthsV6(strokes){
+  const b=wtWordBounds(strokes),A=mgLetterGeometryV6(),wordAspect=b.w/Math.max(1,b.h);
+  const aspectEst=wordAspect/Math.max(.24,A.aspect*.88);
+  const genericEst=wordAspect/.46;
+  const strokeEst=(strokes.length||1)/Math.max(.75,A.strokes);
+  const gapEst=Math.max(2,wtSegmentWordInk(strokes).length||2);
+  /* Aspect carries most weight. Stroke count is only a weak hint because some
+     people connect several letters in one stroke. */
+  const est=Math.max(2,Math.min(30,.68*Math.max(aspectEst,genericEst*.78)+.17*strokeEst+.15*gapEst));
+  const min=Math.max(2,Math.floor(est*.52));
+  const max=Math.min(30,Math.max(min+4,Math.ceil(est*1.55+2)));
+  const vals=[];for(let n=min;n<=max;n++)vals.push(n);
+  vals.sort((a,b)=>Math.abs(a-est)-Math.abs(b-est));
+  return{vals,est,min,max,wordAspect}
+}
+function mgDensityPartsV6(strokes,n){
+  const b=wtWordBounds(strokes);if(!b.w||n<2)return[];
+  const bins=Math.max(120,Math.min(420,Math.round(b.w))),d=Array(bins).fill(0);
+  for(const st of strokes)for(const p of(st.pts||[])){
+    const k=Math.max(0,Math.min(bins-1,Math.round((p.x-b.x)/b.w*(bins-1))));d[k]++
+  }
+  const sm=d.map((_,i)=>{
+    let s=0,w=0;for(let j=-3;j<=3;j++){const k=i+j;if(k>=0&&k<bins){const q=4-Math.abs(j);s+=d[k]*q;w+=q}}return s/Math.max(1,w)
+  });
+  const cuts=[b.x];
+  for(let i=1;i<n;i++){
+    const target=i/n*(bins-1),radius=Math.max(3,Math.round(bins/n*.34));
+    let best=Math.round(target),bestScore=Infinity;
+    for(let k=Math.max(2,Math.round(target-radius));k<=Math.min(bins-3,Math.round(target+radius));k++){
+      const density=sm[k],pen=.18*Math.abs(k-target)/Math.max(1,radius),score=density+pen;
+      if(score<bestScore){bestScore=score;best=k}
+    }
+    let x=b.x+b.w*best/(bins-1);
+    const minSep=b.w/n*.38;
+    x=Math.max(cuts[cuts.length-1]+minSep,x);cuts.push(Math.min(b.x+b.w-minSep*(n-i),x))
+  }
+  cuts.push(b.x+b.w);
+  const parts=[];
+  for(let i=0;i<n;i++){
+    const x0=cuts[i],x1=cuts[i+1],part=[];
+    for(const st of strokes){
+      const src=st.pts||[],pieces=[];let run=[];
+      for(const p of src){
+        if(p.x>=x0-2&&p.x<=x1+2)run.push(p);
+        else if(run.length){if(run.length>1)pieces.push(run);run=[]}
+      }
+      if(run.length>1)pieces.push(run);
+      for(const pts of pieces)part.push({...st,id:(st.id||'st')+'_'+i+'_'+part.length,pts,b:wbBounds(pts)})
+    }
+    parts.push(part)
+  }
+  return parts
+}
+function mgDecodePartsV6(parts,n,est){
+  if(parts.length!==n||parts.some(p=>!p.length))return[];
+  const opts=Array.from({length:n},()=>[]);
+  for(let i=0;i<n;i++){
+    mgRecognizeChunkV6(parts[i],1,5).forEach(x=>{if(x.score>=.025)opts[i].push({len:1,text:x.label,score:x.score})});
+    if(i+1<n){
+      const ink=wtOpenUnionStrokes(parts,i,i+2);
+      mgRecognizeChunkV6(ink,2,4).forEach(x=>{if(x.score>=.022)opts[i].push({len:2,text:x.label,score:x.score*1.05})})
+    }
+    if(i+2<n){
+      const ink=wtOpenUnionStrokes(parts,i,i+3);
+      mgRecognizeChunkV6(ink,3,4).forEach(x=>{if(x.score>=.020)opts[i].push({len:3,text:x.label,score:x.score*1.08})})
+    }
+    if(!opts[i].length)return[]
+  }
+  let beam=[{i:0,text:'',log:0}],done=[];
+  for(let guard=0;guard<60&&beam.length;guard++){
+    const next=[];
+    for(const b of beam){
+      if(b.i>=n){done.push(b);continue}
+      for(const o of opts[b.i])if(b.i+o.len<=n)next.push({
+        i:b.i+o.len,text:b.text+o.text,log:b.log+Math.log(Math.max(.008,o.score))
+      })
+    }
+    next.sort((a,b)=>b.log-a.log);beam=next.slice(0,64)
+  }
+  done.push(...beam.filter(x=>x.i>=n));done.sort((a,b)=>b.log-a.log);
+  const lengthPrior=Math.exp(-Math.abs(n-est)/Math.max(2,est*.55)),seen=new Set(),out=[];
+  for(const x of done){
+    const k=canon(x.text);if(!k||seen.has(k))continue;seen.add(k);
+    out.push({label:x.text,score:Math.exp(x.log/n)*(.72+.28*lengthPrior),source:`open spelling · ${n} chars`});
+    if(out.length>=5)break
+  }
+  return out
+}
+function mgOpenSpellCandidatesV6(strokes){
+  const L=mgCandidateLengthsV6(strokes),all=[];
+  /* Only keep legacy segmentation candidates if their length is geometrically
+     plausible; this prevents a 2-letter tail from beating a 12-letter word. */
+  for(const x of[...wtOpenVocabularyDecode(strokes),...wtComposeLetters(strokes)]){
+    const n=[...String(x.label||'')].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n>=L.min&&n<=L.max)all.push({...x,source:x.source||'open spelling'})
+  }
+  for(const n of L.vals){
+    const parts=mgDensityPartsV6(strokes,n);
+    all.push(...mgDecodePartsV6(parts,n,L.est))
+  }
+  const seen=new Map();
+  for(const x of all){
+    const k=canon(x.label);if(!k)continue;const old=seen.get(k);
+    if(!old||x.score>old.score)seen.set(k,x)
+  }
+  return{candidates:[...seen.values()].sort((a,b)=>b.score-a.score).slice(0,14),lengthModel:L}
+}
+
+/* Final recognizer: await the shared corpus, then use full-word geometry.
+   Known MedGraph words remain secondary suggestions only. */
+const _wbRecognizeV6Fallback=wbRecognizeStrokes;
+wbRecognizeStrokes=async function(strokes,mode='node'){
+  if(!strokes||!strokes.length)return{guesses:[],openGuesses:[],knownGuesses:[],engine:''};
+  await mgHwrSyncIntoWhiteboard(false);
+  if(mode==='letter'||!wtLikelyMultiLetter(strokes))return _wbRecognizeV6Fallback(strokes,mode);
+
+  const dec=mgOpenSpellCandidatesV6(strokes),rawOpen=dec.candidates;
+  const rawEngine=await mgRawHandwritingEngine(strokes);
+  for(const g of rawEngine.guesses||[]){
+    const n=[...g].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n>=dec.lengthModel.min&&n<=dec.lengthModel.max&&!rawOpen.some(x=>canon(x.label)===canon(g))){
+      rawOpen.push({label:g,score:.50,source:rawEngine.engine||'open handwriting'})
+    }
+  }
+  rawOpen.sort((a,b)=>b.score-a.score);
+
+  const known=wtKnownTermReranks(rawOpen).filter(x=>resolve(x.label)?.exists);
+  const whole=wtWordPrototypeMatches(strokes,mode).filter(x=>resolve(x.label)?.exists).map(x=>({...x,source:'known/seen suggestion'}));
+  const openGuesses=[],knownGuesses=[],seen=new Set();
+  for(const x of rawOpen){
+    const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);openGuesses.push(x.label);if(openGuesses.length>=7)break
+  }
+  for(const x of[...known,...whole].sort((a,b)=>b.score-a.score)){
+    const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);knownGuesses.push(x.label);if(knownGuesses.length>=3)break
+  }
+  return{
+    guesses:[...openGuesses,...knownGuesses],
+    openGuesses,knownGuesses,
+    engine:`personal open spelling · ${Math.round(dec.lengthModel.est)}-char estimate`,
+    trainingCount:mgHwrCountV6(),
+    estimatedCharacters:dec.lengthModel.est
+  }
+};
+
+
+
+/* ==================== PWA V7 FAST OPEN-VOCABULARY DECODER ====================
+   Recognition is intentionally memory-only after page startup. IndexedDB is
+   re-read on manual sync/BroadcastChannel, not on every pen pause.
+============================================================================ */
+let MG_V7_LETTER_GEOM_CACHE=null;
+let MG_V7_KNOWN_CACHE=null;
+
+const _mgHwrMergeV7=mgHwrMergeV6;
+mgHwrMergeV6=function(dst,src){
+  const r=_mgHwrMergeV7(dst,src);MG_HWR_PROTO_CACHE=null;MG_V7_LETTER_GEOM_CACHE=null;return r;
+};
+function mgLetterGeometryV7(){
+  if(MG_V7_LETTER_GEOM_CACHE)return MG_V7_LETTER_GEOM_CACHE;
+  const arr=[];
+  for(const s of wtSamples()){
+    if(!['letter','letter_auto'].includes(s.category)||[...String(s.label||'')].filter(ch=>/\p{L}|\d/u.test(ch)).length!==1)continue;
+    const pts=(s.strokes||[]).flatMap(st=>(st.pts||[]).map(q=>Array.isArray(q)?{x:+q[0],y:+q[1]}:q)).filter(p=>isFinite(p.x)&&isFinite(p.y));
+    if(!pts.length)continue;
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;for(const p of pts){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)}
+    const aspect=(x1-x0)/Math.max(.02,y1-y0);
+    if(isFinite(aspect)&&aspect>.08&&aspect<2.4)arr.push({aspect,strokes:(s.strokes||[]).length||1});
+    if(arr.length>=240)break;
+  }
+  const med=a=>{a=a.slice().sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:null};
+  MG_V7_LETTER_GEOM_CACHE={aspect:med(arr.map(x=>x.aspect))||.52,strokes:med(arr.map(x=>x.strokes))||1.5};
+  return MG_V7_LETTER_GEOM_CACHE;
+}
+mgCandidateLengthsV6=function(strokes){
+  const b=wtWordBounds(strokes),A=mgLetterGeometryV7(),wordAspect=b.w/Math.max(1,b.h);
+  const aspectEst=wordAspect/Math.max(.24,A.aspect*.90),genericEst=wordAspect/.47,
+        strokeEst=(strokes.length||1)/Math.max(.9,A.strokes),
+        gapEst=Math.max(2,wtSegmentWordInk(strokes).length||2);
+  const est=Math.max(2,Math.min(32,.72*Math.max(aspectEst,genericEst*.78)+.13*strokeEst+.15*gapEst));
+  const center=Math.round(est),set=new Set();
+  for(const d of[0,-1,1,-2,2]){const n=center+d;if(n>=2&&n<=32)set.add(n)}
+  /* one wider fallback catches compressed writing without exploding compute */
+  const wide=Math.round(est*1.22);if(wide>=2&&wide<=32)set.add(wide);
+  return{vals:[...set],est,min:Math.max(2,Math.floor(est*.58)),max:Math.min(32,Math.ceil(est*1.45+1)),wordAspect};
+};
+function mgLabelSpecificChunkScoreV7(strokes,n,label){
+  const arr=mgHwrProtoIndexV6()[n].get(String(label||'').toLowerCase())||[];
+  if(!arr.length||!strokes?.length)return 0;
+  const sig=wtSparseSignature(strokes);let best=0;
+  for(const s of arr)best=Math.max(best,wtSigSim(sig,s.sig)*wtOpenSampleWeight(s));
+  return best;
+}
+function mgLetterChoicesV7(strokes,limit=4){
+  return mgRecognizeChunkV6(strokes,1,limit);
+}
+function mgDecodePartsV7(parts,n,est){
+  if(parts.length!==n||parts.some(p=>!p.length))return[];
+  const letters=parts.map(p=>mgLetterChoicesV7(p,4));
+  if(letters.some(a=>!a.length))return[];
+  let beam=[{text:'',log:0}];
+  for(let i=0;i<n;i++){
+    const next=[];
+    for(const b of beam)for(const c of letters[i]){
+      let score=Math.max(.008,c.score),bonus=0;
+      if(i>=1){
+        const pair=(b.text.slice(-1)+c.label).toLowerCase();
+        const ps=mgLabelSpecificChunkScoreV7(wtOpenUnionStrokes(parts,i-1,i+1),2,pair);
+        bonus+=ps*.22;
+      }
+      if(i>=2){
+        const trio=(b.text.slice(-2)+c.label).toLowerCase();
+        const ts=mgLabelSpecificChunkScoreV7(wtOpenUnionStrokes(parts,i-2,i+1),3,trio);
+        bonus+=ts*.16;
+      }
+      next.push({text:b.text+c.label,log:b.log+Math.log(score)+bonus});
+    }
+    next.sort((a,b)=>b.log-a.log);beam=next.slice(0,28);
+  }
+  const prior=Math.exp(-Math.abs(n-est)/Math.max(2,est*.6)),seen=new Set(),out=[];
+  for(const b of beam){
+    const k=canon(b.text);if(!k||seen.has(k))continue;seen.add(k);
+    out.push({label:b.text,score:Math.exp(b.log/n)*(.76+.24*prior),source:`open spelling · ${n} chars`});
+    if(out.length>=5)break;
+  }
+  return out;
+}
+function mgOpenSpellCandidatesV7(strokes){
+  const L=mgCandidateLengthsV6(strokes),all=[];
+  for(const n of L.vals){
+    const parts=mgDensityPartsV6(strokes,n);
+    all.push(...mgDecodePartsV7(parts,n,L.est));
+  }
+  const seen=new Map();
+  for(const x of all){const k=canon(x.label);if(!k)continue;const o=seen.get(k);if(!o||x.score>o.score)seen.set(k,x)}
+  return{candidates:[...seen.values()].sort((a,b)=>b.score-a.score).slice(0,12),lengthModel:L};
+}
+function mgKnownVocabularyV7(){
+  const stamp=`${G.defs?.length||0}|${G.rels?.length||0}`;
+  if(MG_V7_KNOWN_CACHE?.stamp===stamp)return MG_V7_KNOWN_CACHE.words;
+  const words=[];for(const d of(G.defs||[])){if(d?.term)words.push(d.term);for(const a of(d?.aliases||[]))words.push(a)}
+  MG_V7_KNOWN_CACHE={stamp,words:[...new Set(words.filter(Boolean))]};return MG_V7_KNOWN_CACHE.words;
+}
+function mgKnownSuggestionsV7(open){
+  const V=mgKnownVocabularyV7(),out=[];
+  for(const raw of open.slice(0,3)){
+    const c=canon(raw.label),L=c.length,first=c[0]||'';
+    let checked=0;
+    for(const v of V){
+      const cv=canon(v);if(!cv||Math.abs(cv.length-L)>3)continue;
+      if(first&&cv[0]!==first)continue;
+      if(++checked>450)break;
+      const d=editDistance(c,cv),sim=1-d/Math.max(1,L,cv.length);
+      if(sim>.55)out.push({label:v,score:sim});
+    }
+  }
+  out.sort((a,b)=>b.score-a.score);const seen=new Set();
+  return out.filter(x=>{const k=canon(x.label);if(seen.has(k))return false;seen.add(k);return true}).slice(0,3);
+}
+/* Final V7 recognizer does NOT reread the full IndexedDB corpus on every word. */
+wbRecognizeStrokes=async function(strokes,mode='node'){
+  if(!strokes||!strokes.length)return{guesses:[],openGuesses:[],knownGuesses:[],engine:''};
+  if(mode==='letter'||!wtLikelyMultiLetter(strokes))return _wbRecognizeV6Fallback(strokes,mode);
+  const dec=mgOpenSpellCandidatesV7(strokes),rawOpen=dec.candidates;
+  const rawEngine=await mgRawHandwritingEngine(strokes);
+  for(const g of rawEngine.guesses||[]){
+    const n=[...g].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n>=dec.lengthModel.min&&n<=dec.lengthModel.max&&!rawOpen.some(x=>canon(x.label)===canon(g))){
+      rawOpen.push({label:g,score:.48,source:rawEngine.engine||'open handwriting'});
+    }
+  }
+  rawOpen.sort((a,b)=>b.score-a.score);
+  const openGuesses=[],seen=new Set();
+  for(const x of rawOpen){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);openGuesses.push(x.label);if(openGuesses.length>=7)break}
+  const knownGuesses=[];
+  for(const x of mgKnownSuggestionsV7(rawOpen)){const k=canon(x.label);if(seen.has(k))continue;seen.add(k);knownGuesses.push(x.label)}
+  return{guesses:[...openGuesses,...knownGuesses],openGuesses,knownGuesses,
+    engine:`fast personal spelling · ~${Math.round(dec.lengthModel.est)} chars`,
+    trainingCount:mgHwrCountV6(),estimatedCharacters:dec.lengthModel.est};
+};
+
+/* ----- canonical export/import ----- */
+async function mgV7Sha256(text){
+  try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+  catch(e){return''}
+}
+function mgV7CategoryCounts(T){const o={};for(const s of(T.samples||[]))o[s.category||'unknown']=(o[s.category||'unknown']||0)+1;return o}
+async function mgV7FreshTraining(){
+  try{const t=await mgHwrGetV6(MG_HWR_V6_TRAINING_KEY);if(t)mgHwrMergeV6(MG_HWR_MEMORY,t)}catch(e){}
+  return MG_HWR_MEMORY;
+}
+async function mgV7TrainingObject(){
+  const T=structuredClone(await mgV7FreshTraining()),raw=JSON.stringify(T);
+  return{T,checksum:await mgV7Sha256(raw),sampleCount:(T.samples||[]).length,categoryCounts:mgV7CategoryCounts(T)};
+}
+exportDownload=async function(){
+  const a=await mgV7TrainingObject(),Gx=structuredClone(G);Gx.whiteboard=Gx.whiteboard||{};Gx.whiteboard.training=a.T;
+  Gx.whiteboard.training.lab={...(Gx.whiteboard.training.lab||{}),exportMeta:{version:7,sampleCount:a.sampleCount,checksum:a.checksum,categoryCounts:a.categoryCounts,created:new Date().toISOString()}};
+  const check=JSON.parse(JSON.stringify(Gx))?.whiteboard?.training?.samples?.length||0;
+  if(check!==a.sampleCount)return alert(`Export self-check failed (${check}/${a.sampleCount})`);
+  return shareOrDownloadJSON(`medgraph-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(Gx,null,2));
+};
+exportHandwritingDownload=async function(){
+  const a=await mgV7TrainingObject();
+  const pack={format:'medgraph-handwriting-training-pack',version:7,created:new Date().toISOString(),sampleCount:a.sampleCount,categoryCounts:a.categoryCounts,checksum:a.checksum,training:a.T};
+  const check=JSON.parse(JSON.stringify(pack))?.training?.samples?.length||0;
+  if(check!==a.sampleCount)return alert(`Export self-check failed (${check}/${a.sampleCount})`);
+  return shareOrDownloadJSON(`medgraph-handwriting-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(pack,null,2));
+};
+importTrainingText=function(txt){
+  let x;try{x=JSON.parse(txt)}catch(e){return toast('That is not valid JSON')}
+  const t=x?.format==='medgraph-handwriting-training-pack'?x.training:
+          x?.training?.samples?x.training:
+          x?.whiteboard?.training?.samples?x.whiteboard.training:
+          x?.graph?.whiteboard?.training?.samples?x.graph.whiteboard.training:
+          Array.isArray(x?.samples)?{samples:x.samples}:null;
+  if(!t)return toast('No handwriting training found');
+  const before=mgHwrCountV6();mgHwrMergeV6(MG_HWR_MEMORY,t);
+  mgHwrPersistNowV6().then(()=>{render();toast(`Imported ${mgHwrCountV6()-before} new · ${mgHwrCountV6()} total`)});
+};
+
+
+
+/* ==================== PWA V8 RECOGNITION AUDIT FIXES ====================
+   Fixes found in the v7 audit:
+   1) pair/trio scoring rerasterized the same ink dozens of times per beam step;
+   2) word segmentation assumed perfectly horizontal writing;
+   3) spatial clustering could absorb a neighboring word after a small pause;
+   4) 2–3 letter unseen words could fall through to an older vocabulary-biased path;
+   5) async recognition results could overwrite newer ink guesses.
+=========================================================================== */
+let MG_V8_RECOG_SERIAL=0;
+let MG_V8_CHUNK_SCORE_CACHE=new Map();
+function mgRotateWordV8(strokes,angle,cx,cy){
+  const c=Math.cos(angle),s=Math.sin(angle);return(strokes||[]).map(st=>{
+    const pts=(st.pts||[]).map(p=>{const dx=p.x-cx,dy=p.y-cy;return{...p,x:cx+dx*c-dy*s,y:cy+dx*s+dy*c}});
+    return{...st,pts,b:wbBounds(pts)};
+  });
+}
+function mgDeskewWordV8(strokes){
+  if(!strokes?.length)return strokes||[];const B=wtWordBounds(strokes),centers=[];
+  for(const st of strokes){const b=wbStrokeBounds(st);if(b.w+b.h<2)continue;centers.push({x:b.x+b.w/2,y:b.y+b.h/2,w:Math.max(1,Math.sqrt(Math.max(1,b.w*b.h)))})}
+  let angle=0;
+  if(centers.length>=3){
+    let sw=0,mx=0,my=0;for(const p of centers){sw+=p.w;mx+=p.x*p.w;my+=p.y*p.w}mx/=sw;my/=sw;
+    let xx=0,xy=0;for(const p of centers){xx+=(p.x-mx)*(p.x-mx)*p.w;xy+=(p.x-mx)*(p.y-my)*p.w}
+    if(xx>1)angle=Math.atan2(xy,xx);
+  }else if(strokes.length===1){
+    const p=strokes[0].pts||[];if(p.length>6){const a=p[Math.floor(p.length*.10)],z=p[Math.floor(p.length*.90)];if(z.x-a.x>Math.max(18,B.w*.55))angle=Math.atan2(z.y-a.y,z.x-a.x)}
+  }
+  angle=Math.max(-24*Math.PI/180,Math.min(24*Math.PI/180,angle));
+  if(Math.abs(angle)<1.5*Math.PI/180)return strokes;
+  return mgRotateWordV8(strokes,-angle,B.x+B.w/2,B.y+B.h/2);
+}
+function mgChunkSpecificMapV8(strokes,n,labels){
+  if(!strokes?.length||!labels?.size)return new Map();
+  const sig=wtSparseSignature(strokes),idx=mgHwrProtoIndexV6()[n],out=new Map();
+  for(const label of labels){let best=0;for(const s of(idx.get(label)||[]))best=Math.max(best,wtSigSim(sig,s.sig)*wtOpenSampleWeight(s));out.set(label,best)}
+  return out;
+}
+function mgDecodePartsV8(parts,n,est){
+  if(parts.length!==n||parts.some(p=>!p.length))return[];
+  const letters=parts.map(p=>mgLetterChoicesV7(p,5));if(letters.some(a=>!a.length))return[];
+  const pairMaps=Array(n).fill(null),trioMaps=Array(n).fill(null);
+  for(let i=1;i<n;i++){
+    const labels=new Set();for(const a of letters[i-1])for(const b of letters[i])labels.add((a.label+b.label).toLowerCase());
+    pairMaps[i]=mgChunkSpecificMapV8(wtOpenUnionStrokes(parts,i-1,i+1),2,labels);
+  }
+  for(let i=2;i<n;i++){
+    const labels=new Set();for(const a of letters[i-2])for(const b of letters[i-1])for(const c of letters[i])labels.add((a.label+b.label+c.label).toLowerCase());
+    trioMaps[i]=mgChunkSpecificMapV8(wtOpenUnionStrokes(parts,i-2,i+1),3,labels);
+  }
+  let beam=[{text:'',log:0}];
+  for(let i=0;i<n;i++){
+    const next=[];for(const b of beam)for(const c of letters[i]){
+      const pair=i>=1?(b.text.slice(-1)+c.label).toLowerCase():'',trio=i>=2?(b.text.slice(-2)+c.label).toLowerCase():'';
+      const bonus=(pairMaps[i]?.get(pair)||0)*.22+(trioMaps[i]?.get(trio)||0)*.16;
+      next.push({text:b.text+c.label,log:b.log+Math.log(Math.max(.006,c.score))+bonus});
+    }
+    next.sort((a,b)=>b.log-a.log);beam=next.slice(0,24);if(!beam.length)return[];
+  }
+  const prior=Math.exp(-Math.abs(n-est)/Math.max(2,est*.6)),seen=new Set(),out=[];
+  for(const b of beam){const k=canon(b.text);if(!k||seen.has(k))continue;seen.add(k);out.push({label:b.text,score:Math.exp(b.log/n)*(.76+.24*prior),source:`open spelling · ${n} chars`});if(out.length>=5)break}
+  return out;
+}
+function mgOpenSpellCandidatesV8(original){
+  const strokes=mgDeskewWordV8(original),L=mgCandidateLengthsV6(strokes),all=[];
+  for(const n of L.vals){const parts=mgDensityPartsV6(strokes,n);all.push(...mgDecodePartsV8(parts,n,L.est))}
+  const seen=new Map();for(const x of all){const k=canon(x.label);if(!k)continue;const o=seen.get(k);if(!o||x.score>o.score)seen.set(k,x)}
+  return{candidates:[...seen.values()].sort((a,b)=>b.score-a.score).slice(0,12),lengthModel:L,normalized:strokes};
+}
+/* Split a spatial cluster at a genuine whitespace/pause boundary and retain the
+   component containing the most recently drawn stroke. */
+const _wbClusterRecentV8Base=wbClusterRecent;
+wbClusterRecent=function(latest){
+  const raw=_wbClusterRecentV8Base(latest);if(raw.length<2)return raw;
+  const latestB=wbStrokeBounds(latest),latestX=latestB.x+latestB.w/2,B=wbUnionBounds(raw.map(wbStrokeBounds)),H=Math.max(12,B.h);
+  const items=raw.map(st=>({st,b:wbStrokeBounds(st)})).sort((a,b)=>a.b.x-b.b.x),cuts=[];
+  for(let i=1;i<items.length;i++){
+    const a=items[i-1],b=items[i],gap=b.b.x-(a.b.x+a.b.w),dt=Math.abs((b.st.created||0)-(a.st.created||0));
+    const strong=gap>Math.max(20,H*.52),pauseGap=dt>900&&gap>Math.max(12,H*.26);
+    if(strong||pauseGap)cuts.push((a.b.x+a.b.w+b.b.x)/2);
+  }
+  if(!cuts.length)return raw;let lo=-Infinity,hi=Infinity;for(const x of cuts){if(x<latestX)lo=Math.max(lo,x);else if(x>latestX)hi=Math.min(hi,x)}
+  const kept=raw.filter(st=>{const b=wbStrokeBounds(st),x=b.x+b.w/2;return x>lo&&x<hi});return kept.length?kept:raw;
+};
+/* Treat estimated 2+ character ink as open vocabulary even if the old heuristic
+   thinks the strokes form only one or two connected components. */
+wbRecognizeStrokes=async function(strokes,mode='node'){
+  if(!strokes||!strokes.length)return{guesses:[],openGuesses:[],knownGuesses:[],engine:''};
+  if(mode==='letter')return _wbRecognizeV6Fallback(strokes,mode);
+  const serial=++MG_V8_RECOG_SERIAL,dec=mgOpenSpellCandidatesV8(strokes),est=dec.lengthModel.est;
+  if(est<1.65&&!wtLikelyMultiLetter(strokes))return _wbRecognizeV6Fallback(strokes,mode);
+  const rawOpen=dec.candidates.slice();
+  const rawEngine=await mgRawHandwritingEngine(dec.normalized);
+  for(const g of rawEngine.guesses||[]){const n=[...g].filter(ch=>/\p{L}|\d/u.test(ch)).length;if(n>=dec.lengthModel.min&&n<=dec.lengthModel.max&&!rawOpen.some(x=>canon(x.label)===canon(g)))rawOpen.push({label:g,score:.47,source:rawEngine.engine||'open handwriting'})}
+  rawOpen.sort((a,b)=>b.score-a.score);
+  const openGuesses=[],seen=new Set();for(const x of rawOpen){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);openGuesses.push(x.label);if(openGuesses.length>=7)break}
+  const knownGuesses=[];for(const x of mgKnownSuggestionsV7(rawOpen)){const k=canon(x.label);if(seen.has(k))continue;seen.add(k);knownGuesses.push(x.label)}
+  return{guesses:[...openGuesses,...knownGuesses],openGuesses,knownGuesses,engine:`personal open spelling · ~${Math.round(est)} chars`,trainingCount:mgHwrCountV6(),estimatedCharacters:est,serial};
+};
+/* Prevent a slower result for older ink from replacing a newer recognition. */
+wbScheduleWordGuess=function(st){
+  clearTimeout(WB.wordTimer);if(!WB.autoText)return;const scheduledStrokeId=st.id;
+  WB.wordTimer=setTimeout(()=>{
+    if(WB.pendingNode||WB.pendingArrow||!wbStroke(scheduledStrokeId)||st.role)return;const cl=wbClusterRecent(st);if(!cl.length||cl.length>90)return;
+    const clusterIds=cl.map(x=>x.id),clusterKey=clusterIds.join('|');
+    const run=async()=>{const rr=await wbRecognizeStrokes(cl,'node');const current=wbStroke(scheduledStrokeId);if(!current||current.role)return;const now=wbClusterRecent(current).map(x=>x.id).join('|');if(now!==clusterKey)return;if(rr.guesses.length){WB.ghostText={strokeIds:clusterIds,bounds:wbUnionBounds(cl.map(wbStrokeBounds)),text:rr.guesses[0],alts:rr.guesses,openAlts:rr.openGuesses||rr.guesses,knownAlts:rr.knownGuesses||[],engine:rr.engine,cls:wbGuessClass(rr.guesses[0])};render()}};
+    if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1500});else setTimeout(run,30);
+  },1150);
+};
+
+
+
+/* ---------- V8.1 phrase grouping + backup completeness ---------- */
+function mgWordGroupsV8(strokes){
+  if(!strokes?.length)return[];const items=strokes.map(st=>({st,b:wbStrokeBounds(st)})).filter(x=>x.b.w+x.b.h>1);if(items.length<2)return[strokes];
+  const allH=items.map(x=>Math.max(2,x.b.h)).sort((a,b)=>a-b),rawMed=allH[Math.floor(allH.length/2)]||16;
+  const body=items.filter(x=>x.b.h>=Math.max(7,rawMed*.48));
+  const seed=body.length?body:items,bodyH=seed.map(x=>Math.max(6,x.b.h)).sort((a,b)=>a-b),medH=bodyH[Math.floor(bodyH.length/2)]||Math.max(12,rawMed),lines=[];
+  /* Build lines from body strokes first; dots/diacritics get attached afterward. */
+  for(const it of seed.slice().sort((a,b)=>(a.b.y+a.b.h/2)-(b.b.y+b.b.h/2))){
+    const cy=it.b.y+it.b.h/2;let best=null,bd=Infinity;for(const L of lines){const d=Math.abs(cy-L.cy);if(d<bd&&d<Math.max(20,medH*.68)){best=L;bd=d}}
+    if(!best){best={items:[],cy};lines.push(best)}best.items.push(it);best.cy=best.items.reduce((s,x)=>s+x.b.y+x.b.h/2,0)/best.items.length;
+  }
+  const seedSet=new Set(seed.map(x=>x.st.id));for(const it of items){if(seedSet.has(it.st.id))continue;const cx=it.b.x+it.b.w/2,cy=it.b.y+it.b.h/2;let best=null,score=Infinity;
+    for(const L of lines){const lb=wbUnionBounds(L.items.map(x=>x.b)),xgap=Math.max(0,lb.x-cx,cx-(lb.x+lb.w)),dy=Math.abs(cy-L.cy),s=dy+xgap*.55;if(xgap<Math.max(24,medH*.8)&&s<score){score=s;best=L}}
+    (best||lines[0]).items.push(it);
+  }
+  lines.sort((a,b)=>a.cy-b.cy);const groups=[];for(const L of lines){const a=L.items.sort((x,y)=>x.b.x-y.b.x);let g=[];
+    for(const it of a){if(!g.length){g=[it];continue}const gb=wbUnionBounds(g.map(x=>x.b)),gap=it.b.x-(gb.x+gb.w),H=Math.max(medH,gb.h,it.b.h);if(gap>Math.max(22,H*.58)){groups.push(g.map(x=>x.st));g=[it]}else g.push(it)}if(g.length)groups.push(g.map(x=>x.st));
+  }return groups.length?groups:[strokes];
+}
+async function mgRecognizeSingleV8(strokes,mode='node'){
+  const dec=mgOpenSpellCandidatesV8(strokes),est=dec.lengthModel.est;
+  if(est<1.65&&!wtLikelyMultiLetter(strokes))return _wbRecognizeV6Fallback(strokes,mode);
+  const rawOpen=dec.candidates.slice(),rawEngine=await mgRawHandwritingEngine(dec.normalized);
+  for(const g of rawEngine.guesses||[]){const n=[...g].filter(ch=>/\p{L}|\d/u.test(ch)).length;if(n>=dec.lengthModel.min&&n<=dec.lengthModel.max&&!rawOpen.some(x=>canon(x.label)===canon(g)))rawOpen.push({label:g,score:.47,source:rawEngine.engine||'open handwriting'})}
+  rawOpen.sort((a,b)=>b.score-a.score);const openGuesses=[],seen=new Set();for(const x of rawOpen){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);openGuesses.push(x.label);if(openGuesses.length>=7)break}
+  const knownGuesses=[];for(const x of mgKnownSuggestionsV7(rawOpen)){const k=canon(x.label);if(seen.has(k))continue;seen.add(k);knownGuesses.push(x.label)}
+  return{guesses:[...openGuesses,...knownGuesses],openGuesses,knownGuesses,engine:`personal open spelling · ~${Math.round(est)} chars`,trainingCount:mgHwrCountV6(),estimatedCharacters:est};
+}
+wbRecognizeStrokes=async function(strokes,mode='node'){
+  if(!strokes||!strokes.length)return{guesses:[],openGuesses:[],knownGuesses:[],engine:''};if(mode==='letter')return _wbRecognizeV6Fallback(strokes,mode);
+  const groups=mgWordGroupsV8(strokes);
+  if(groups.length>1&&groups.length<=8){
+    const rs=[];for(const g of groups)rs.push(await mgRecognizeSingleV8(g,mode));
+    if(rs.every(r=>r.guesses?.length)){
+      const first=rs.map(r=>r.guesses[0]).join(' '),alts=[first];
+      for(let i=0;i<rs.length&&alts.length<6;i++)for(const x of(rs[i].openGuesses||rs[i].guesses).slice(1,3)){const p=rs.map((r,j)=>j===i?x:r.guesses[0]).join(' ');if(!alts.some(a=>canon(a)===canon(p)))alts.push(p)}
+      return{guesses:alts,openGuesses:alts,knownGuesses:[],engine:`personal phrase spelling · ${groups.length} words`,trainingCount:mgHwrCountV6()};
+    }
+  }
+  return mgRecognizeSingleV8(strokes,mode);
+};
+async function mgV8LabBackupFromDB(){
+  try{const s=await mgHwrGetV6('lab-state');if(!s)return null;return{validation:structuredClone(s.validation||[]),labState:{guided:s.guided||{},segment:{overrides:s.segment?.overrides||{}},generator:s.gen||{}}}}catch(e){return null}
+}
+exportDownload=async function(){
+  const a=await mgV7TrainingObject(),backup=await mgV8LabBackupFromDB();if(backup){a.T.lab=a.T.lab||{};a.T.lab.backupV8=backup}a.checksum=await mgV7Sha256(JSON.stringify(a.T));
+  const Gx=structuredClone(G);Gx.whiteboard=Gx.whiteboard||{};Gx.whiteboard.training=a.T;Gx.whiteboard.training.lab={...(Gx.whiteboard.training.lab||{}),exportMeta:{version:8,sampleCount:a.sampleCount,checksum:a.checksum,categoryCounts:a.categoryCounts,created:new Date().toISOString()}};
+  const rt=JSON.parse(JSON.stringify(Gx)),n=rt?.whiteboard?.training?.samples?.length||0;if(n!==a.sampleCount)return alert(`Export self-check failed (${n}/${a.sampleCount})`);
+  return shareOrDownloadJSON(`medgraph-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(Gx,null,2));
+};
+exportHandwritingDownload=async function(){
+  const a=await mgV7TrainingObject(),backup=await mgV8LabBackupFromDB();if(backup){a.T.lab=a.T.lab||{};a.T.lab.backupV8=backup}
+  const pack={format:'medgraph-handwriting-training-pack',version:8,created:new Date().toISOString(),sampleCount:a.sampleCount,categoryCounts:a.categoryCounts,checksum:await mgV7Sha256(JSON.stringify(a.T)),training:a.T,validation:backup?.validation||[],labState:backup?.labState||null};
+  const rt=JSON.parse(JSON.stringify(pack));if((rt.training?.samples?.length||0)!==a.sampleCount)return alert('Handwriting backup self-check failed');return shareOrDownloadJSON(`medgraph-handwriting-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(pack,null,2));
+};
+importTrainingText=function(txt){
+  let x;try{x=JSON.parse(txt)}catch(e){return toast('That is not valid JSON')}
+  const t=x?.format==='medgraph-handwriting-training-pack'?x.training:x?.training?.samples?x.training:x?.whiteboard?.training?.samples?x.whiteboard.training:x?.graph?.whiteboard?.training?.samples?x.graph.whiteboard.training:Array.isArray(x?.samples)?{samples:x.samples}:null;if(!t)return toast('No handwriting training found');
+  const before=mgHwrCountV6();mgHwrMergeV6(MG_HWR_MEMORY,t);const backup=x.labState?{validation:x.validation||[],labState:x.labState}:t?.lab?.backupV8;
+  const restoredState=backup?.labState?{guided:backup.labState.guided||{},segment:backup.labState.segment||{},gen:backup.labState.generator||backup.labState.gen||{},validation:backup.validation||[]}:null;
+  Promise.all([mgHwrPersistNowV6(),restoredState?mgHwrPutV6('lab-state',restoredState):Promise.resolve()]).then(()=>{render();toast(`Imported ${mgHwrCountV6()-before} new · ${mgHwrCountV6()} total${backup?' + trainer state':''}`)});
+};
+
+
 /* ==================== BOOT ==================== */
 /* Answer without touching the screen. A Bluetooth clicker or presenter remote
    shows up as a keyboard, so these shortcuts make one work with no pairing code
@@ -7163,7 +7892,15 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft'){e.preventDefault();navGo(-1)}
   if(e.key==='ArrowRight'){e.preventDefault();navGo(1)}
 });
-(async()=>{await load();try{mgHwrInitSync()}catch(e){};seqLoadPrefs();refresh();render();applySidebar();})();
+(async()=>{
+  try{
+    await load();await mgHwrInitV6();seqLoadPrefs();refresh();render();applySidebar();
+  }catch(e){
+    console.error(e);
+    const root=document.getElementById('root')||document.body;
+    root.innerHTML=`<div style="padding:24px;font-family:system-ui"><h2>MedGraph could not open</h2><p>${esc(e.message||e)}</p><button onclick="location.reload()">Reload</button></div>`;
+  }
+})();
 </script>
 
 <script>
