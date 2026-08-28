@@ -76,7 +76,7 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
 </head>
 <body>
 <header>
-  <div class="brand">Handwriting Lab<small>for MedGraph</small></div><button class="hbtn" onclick="location.href='./index.html'">← MedGraph</button>
+  <div class="brand">Handwriting Lab<small>for MedGraph</small></div><button class="hbtn" onclick="labGoMedGraph()">← MedGraph</button>
   <div class="tabs" id="tabs"></div>
   <div class="hright">
     <span class="status" id="save-status">local</span>
@@ -112,8 +112,9 @@ const canon=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^\p{L}\d]
 function saveLocal(){
   try{
     localStorage.setItem(LS,JSON.stringify(S));
+    labWriteShared();
     syncTrainingToMainMedGraph();
-    const el=document.getElementById('save-status');if(el)el.textContent='saved locally + synced to MedGraph';
+    const el=document.getElementById('save-status');if(el)el.textContent='saved locally + shared with Whiteboard';
   }catch(e){
     const el=document.getElementById('save-status');if(el)el.textContent='memory only';
   }
@@ -124,6 +125,7 @@ function loadLocal(){
     if(x)S={...S,...x,canvas:{...S.canvas,...(x.canvas||{}),active:null},test:{...S.test,...(x.test||{}),active:null}};
   }catch(e){}
   try{syncTrainingFromMainMedGraph()}catch(e){}
+  try{labPullShared()}catch(e){}
 }
 function graph(){return S.graph||S.standalone}
 function training(){const G=graph();G.whiteboard=G.whiteboard||{};G.whiteboard.training=G.whiteboard.training||{};G.whiteboard.training.samples=G.whiteboard.training.samples||[];G.whiteboard.training.lab=G.whiteboard.training.lab||{};return G.whiteboard.training}
@@ -154,6 +156,25 @@ function mergeTrainingSamples(dst,src){
   dst.lab={...(src.lab||{}),...(dst.lab||{})};
   return dst;
 }
+
+/* ---------- V5 dedicated shared handwriting store ---------- */
+const LAB_SHARED_KEY='medgraph_handwriting_shared_v5';
+const LAB_SHARED_CHANNEL='medgraph-handwriting-v5';
+let LAB_HWR_BC=null;
+function labSharedEmpty(){return{version:5,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}}}
+function labReadShared(){try{const x=JSON.parse(localStorage.getItem(LAB_SHARED_KEY)||'null');return x&&typeof x==='object'?x:labSharedEmpty()}catch(e){return labSharedEmpty()}}
+function labWriteShared(){
+  try{const sh=labReadShared();mergeTrainingSamples(sh,training());sh.version=5;sh.updatedAt=Date.now();localStorage.setItem(LAB_SHARED_KEY,JSON.stringify(sh));
+    if(LAB_HWR_BC)try{LAB_HWR_BC.postMessage({type:'training-updated',count:(sh.samples||[]).length})}catch(e){};return(sh.samples||[]).length
+  }catch(e){return 0}
+}
+function labPullShared(){try{const sh=labReadShared();mergeTrainingSamples(training(),sh);return(sh.samples||[]).length}catch(e){return 0}}
+function labInitShared(){
+  labPullShared();labWriteShared();
+  try{if('BroadcastChannel'in window){LAB_HWR_BC=new BroadcastChannel(LAB_SHARED_CHANNEL);LAB_HWR_BC.onmessage=e=>{if(e.data?.type==='training-updated'){labPullShared();const el=document.getElementById('save-status');if(el)el.textContent=`shared model · ${samples().length} samples`}}}}catch(e){}
+  window.addEventListener('storage',e=>{if(e.key===LAB_SHARED_KEY)labPullShared()});
+}
+
 function syncTrainingFromMainMedGraph(){
   try{
     const raw=localStorage.getItem(MEDGRAPH_MAIN_LS);if(!raw)return false;
@@ -885,7 +906,7 @@ function tabBar(){document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>`<
 function dashHTML(){
   const T=samples(),C=coverage(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,synt=T.filter(s=>isSyntheticSample(s)).length;
   const ev0=evaluate(false),ev1=evaluate(true),weak=weakestLetters(10),pairs=commonNgrams(2,12),trios=commonNgrams(3,10);
-  return `<div class="panel"><div class="notice" style="margin-bottom:10px"><b>Shared model:</b> on the PWA, handwriting samples are automatically shared with the main MedGraph whiteboard on the same site. Train letters/pairs/trios here, then reopen or refresh MedGraph to use them.</div><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
+  return `<div class="panel"><div class="notice" style="margin-bottom:10px"><b>Shared model:</b> the Ink Lab now writes to a dedicated shared handwriting store. The Whiteboard reads that store before every recognition, so it no longer depends on the graph storage backend. Train here, then return to Whiteboard; use “Sync handwriting” if you want to verify the count immediately.</div><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode · import a MedGraph JSON whenever you want'}</span></div>
     <div class="metrics"><div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${real}</b><span>real labeled</span></div><div class="metric"><b>${C.auto}</b><span>letters inferred</span></div><div class="metric"><b>${synt}</b><span>synthetic</span></div><div class="metric"><b>${S.validation.length}</b><span>validation</span></div></div>
   </div>
   <div class="grid2">
@@ -1050,7 +1071,220 @@ function render(){
   if(S.tab==='generate')setTimeout(()=>S.gen.previews.forEach((p,i)=>paintPreview('prev-'+i,p)),0);
   if(S.tab==='test'){initInkCanvas('test-canvas');paintCanvas('test-canvas')}
 }
-loadLocal();training();render();
+
+/* ==================== V6 DURABLE PERSONAL TRAINING ====================
+   The training corpus is now independent of S.graph / S.standalone and lives
+   in IndexedDB. This fixes two separate v5 failure modes:
+   1) loading the main graph could switch training() to a smaller graph-owned
+      array, making newer trainer work appear to vanish;
+   2) keeping the same stroke corpus twice in localStorage could hit Safari's
+      quota, leaving the shared copy stuck at an older sample count.
+======================================================================= */
+const LAB_V6_DB='medgraph_handwriting_v6';
+const LAB_V6_STORE='kv';
+const LAB_V6_TRAINING_KEY='training';
+const LAB_V6_STATE_KEY='lab-state';
+let LAB_V6_DBP=null;
+let LAB_V6_SAVE_CHAIN=Promise.resolve();
+
+function labV6EmptyTraining(){
+  return{version:6,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+}
+function labV6SampleKey(s){
+  if(s?.id)return 'id:'+s.id;
+  return[
+    s?.category||'',String(s?.label||'').toLowerCase(),s?.source||'',
+    JSON.stringify(s?.sig||[]).slice(0,260)
+  ].join('|');
+}
+function labV6Merge(dst,src){
+  dst=dst||labV6EmptyTraining();src=src||{};
+  dst.samples=Array.isArray(dst.samples)?dst.samples:[];
+  const seen=new Set(dst.samples.map(labV6SampleKey));
+  for(const s of (Array.isArray(src.samples)?src.samples:[])){
+    const k=labV6SampleKey(s);if(!seen.has(k)){dst.samples.push(s);seen.add(k)}
+  }
+  for(const k of ['arrowPos','arrowNeg','nodePos','nodeNeg']){
+    dst[k]=Array.isArray(dst[k])?dst[k]:[];
+    const have=new Set(dst[k].map(x=>JSON.stringify(x)));
+    for(const x of (Array.isArray(src[k])?src[k]:[])){
+      const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}
+    }
+  }
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};
+  dst.version=6;dst.updatedAt=Date.now();return dst;
+}
+function labV6OpenDB(){
+  if(LAB_V6_DBP)return LAB_V6_DBP;
+  LAB_V6_DBP=new Promise((resolve,reject)=>{
+    const r=indexedDB.open(LAB_V6_DB,1);
+    r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(LAB_V6_STORE))db.createObjectStore(LAB_V6_STORE)};
+    r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);
+  });
+  return LAB_V6_DBP;
+}
+async function labV6Get(key){
+  const db=await labV6OpenDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(LAB_V6_STORE,'readonly'),rq=tx.objectStore(LAB_V6_STORE).get(key);
+    rq.onsuccess=()=>resolve(rq.result);rq.onerror=()=>reject(rq.error);
+  });
+}
+async function labV6Put(key,value){
+  const db=await labV6OpenDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(LAB_V6_STORE,'readwrite');
+    tx.objectStore(LAB_V6_STORE).put(value,key);
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('IndexedDB write aborted'));
+  });
+}
+function labV6TrainingFromLegacyState(x){
+  const out=labV6EmptyTraining();
+  const merge=t=>{if(t&&typeof t==='object')labV6Merge(out,t)};
+  merge(x?.personalTraining);
+  merge(x?.standalone?.whiteboard?.training);
+  merge(x?.graph?.whiteboard?.training);
+  return out;
+}
+function labV6TrainingFromMainGraph(){
+  try{
+    const mg=JSON.parse(localStorage.getItem(MEDGRAPH_MAIN_LS)||'null');
+    return mg?.whiteboard?.training||null;
+  }catch(e){return null}
+}
+function labV6TrainingFromSharedV5(){
+  try{return JSON.parse(localStorage.getItem(LAB_SHARED_KEY)||'null')}catch(e){return null}
+}
+
+/* training() no longer changes when a graph is imported/loaded. */
+training=function(){
+  S.personalTraining=S.personalTraining||labV6EmptyTraining();
+  S.personalTraining.samples=S.personalTraining.samples||[];
+  S.personalTraining.lab=S.personalTraining.lab||{};
+  return S.personalTraining;
+};
+samples=function(){return training().samples};
+
+function labV6StateSnapshot(){
+  const x={...S};
+  /* training has its own IndexedDB record; don't duplicate it inside state */
+  delete x.personalTraining;
+  /* strip legacy graph-owned copies so one corpus isn't stored three times */
+  if(x.standalone?.whiteboard?.training){
+    x.standalone={...x.standalone,whiteboard:{...x.standalone.whiteboard,training:{samples:[]}}};
+  }
+  if(x.graph?.whiteboard?.training){
+    x.graph={...x.graph,whiteboard:{...x.graph.whiteboard,training:{...x.graph.whiteboard.training,samples:[]}}};
+  }
+  return x;
+}
+async function labV6PersistNow(){
+  const T=training();T.version=6;T.updatedAt=Date.now();
+  await labV6Put(LAB_V6_TRAINING_KEY,T);
+  await labV6Put(LAB_V6_STATE_KEY,labV6StateSnapshot());
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=`saved · ${T.samples.length} samples · IndexedDB`;
+  return T.samples.length;
+}
+function saveLocal(){
+  LAB_V6_SAVE_CHAIN=LAB_V6_SAVE_CHAIN.then(()=>labV6PersistNow()).catch(e=>{
+    console.error('Handwriting save failed',e);
+    const el=document.getElementById('save-status');if(el)el.textContent='save failed';
+  });
+  return LAB_V6_SAVE_CHAIN;
+}
+async function loadLocal(){
+  let oldState=null,idbState=null,idbTraining=null;
+  try{oldState=JSON.parse(localStorage.getItem(LS)||'null')}catch(e){}
+  try{idbState=await labV6Get(LAB_V6_STATE_KEY)}catch(e){}
+  try{idbTraining=await labV6Get(LAB_V6_TRAINING_KEY)}catch(e){}
+
+  const state=idbState||oldState;
+  if(state){
+    S={...S,...state,
+      canvas:{...S.canvas,...(state.canvas||{}),active:null},
+      test:{...S.test,...(state.test||{}),active:null},
+      segment:{...S.segment,...(state.segment||{})}
+    };
+  }
+
+  const merged=labV6EmptyTraining();
+  labV6Merge(merged,idbTraining);
+  labV6Merge(merged,labV6TrainingFromLegacyState(oldState));
+  labV6Merge(merged,labV6TrainingFromSharedV5());
+  labV6Merge(merged,labV6TrainingFromMainGraph());
+  /* Also recover copies that may have been preserved inside the loaded IDB state. */
+  labV6Merge(merged,labV6TrainingFromLegacyState(idbState));
+  S.personalTraining=merged;
+
+  /* Persist the recovered superset before freeing the duplicate localStorage data. */
+  try{
+    await labV6PersistNow();
+    localStorage.removeItem(LS);
+    localStorage.removeItem(LAB_SHARED_KEY);
+  }catch(e){console.warn('Migration kept legacy backup because IndexedDB write failed',e)}
+}
+labWriteShared=function(){saveLocal();return samples().length};
+labPullShared=function(){return samples().length};
+labInitShared=async function(){
+  /* No second shared localStorage copy. IndexedDB is the shared source of truth. */
+  try{
+    if('BroadcastChannel'in window){
+      LAB_HWR_BC=new BroadcastChannel('medgraph-handwriting-v6');
+      LAB_HWR_BC.onmessage=async e=>{
+        if(e.data?.type==='training-updated'){
+          const incoming=await labV6Get(LAB_V6_TRAINING_KEY).catch(()=>null);
+          if(incoming){labV6Merge(training(),incoming);render()}
+        }
+      };
+    }
+  }catch(e){}
+};
+syncTrainingFromMainMedGraph=function(){
+  /* Merge only. Never assign S.graph here: doing that caused v5's apparent deletion. */
+  const t=labV6TrainingFromMainGraph();if(t)labV6Merge(training(),t);return !!t;
+};
+syncTrainingToMainMedGraph=function(){saveLocal();return true};
+
+const _labV6VocabBase=vocab;
+vocab=function(){
+  const out=[..._labV6VocabBase()];
+  try{
+    const mg=JSON.parse(localStorage.getItem(MEDGRAPH_MAIN_LS)||'null');
+    (mg?.defs||[]).forEach(d=>{if(d?.term)out.push(d.term);(d?.aliases||[]).forEach(a=>out.push(a))});
+  }catch(e){}
+  return [...new Set(out.filter(Boolean))];
+};
+
+exportMedGraph=function(){
+  const G=structuredClone(graph()||{defs:[],whiteboard:{}});
+  G.whiteboard=G.whiteboard||{};
+  G.whiteboard.training=structuredClone(training());
+  training().lab={...(training().lab||{}),lastLabExport:Date.now(),validation:S.validation};
+  download('medgraph_with_handwriting_training.json',JSON.stringify(G,null,2));
+};
+exportPack=function(){
+  download('medgraph_handwriting_training_pack.json',JSON.stringify({
+    version:6,created:Date.now(),training:training(),samples:samples(),validation:S.validation
+  },null,2));
+};
+resetLab=async function(){
+  if(!confirm('Reset the Handwriting Lab workspace and personal handwriting model? Export first if you want a backup.'))return;
+  S.personalTraining=labV6EmptyTraining();
+  S.validation=[];S.graph=null;S.standalone={defs:[],whiteboard:{training:{samples:[]}}};
+  await labV6PersistNow();location.reload();
+};
+async function labGoMedGraph(){
+  await saveLocal();
+  try{
+    if(LAB_HWR_BC)LAB_HWR_BC.postMessage({type:'training-updated',count:samples().length});
+  }catch(e){}
+  location.href='./index.html';
+}
+window.addEventListener('pagehide',()=>{try{saveLocal()}catch(e){}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')try{saveLocal()}catch(e){}});
+
+(async()=>{await loadLocal();training();await labInitShared();render();})();
 </script>
 <script>
 (function(){

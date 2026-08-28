@@ -1,4 +1,4 @@
-const CACHE='medgraph-pwa-v4-open-vocab';
+const CACHE='medgraph-pwa-v6-durable-longwords';
 
 const CORE = [
   './',
@@ -30,16 +30,15 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-
-      return fetch(event.request).then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
-        return response;
-      });
-    })
-  );
+  const url=new URL(event.request.url);
+  const isHtml=event.request.mode==='navigate'||url.pathname.endsWith('.html')||url.pathname.endsWith('/');
+  if(isHtml){
+    event.respondWith(fetch(event.request).then(response=>{
+      const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response;
+    }).catch(()=>caches.match(event.request).then(x=>x||caches.match('./index.html'))));
+    return;
+  }
+  event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{
+    const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response;
+  })));
 });
