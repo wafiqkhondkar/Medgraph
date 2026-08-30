@@ -51,7 +51,7 @@ function whiteboardHTML(){
     ${pn?`<div class="wbedit">
       <div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div>
       <div class="grid3" style="margin-top:8px">
-        <div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div>
+        <div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="${pn?.recognizing?'recognizing…':'type or correct ANY word/phrase'}"></div>
         <div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div>
       </div>
@@ -333,7 +333,7 @@ function whiteboardHTML(){
       <button class="mini" onclick="wbUndoInk()">Undo ink</button><button class="mini" onclick="wbSaveSequence()">Save sequence connectors</button><button class="mini x" onclick="wbClearBoard()">Clear board</button>
     </div>
     <div class="wbsmart"><label><input type="checkbox" ${WB.smart?'checked':''} onchange="WB.smart=this.checked"> smart arrows</label><label><input type="checkbox" ${WB.autoShapes?'checked':''} onchange="WB.autoShapes=this.checked"> circles → node guesses</label><label><input type="checkbox" ${WB.autoText?'checked':''} onchange="WB.autoText=this.checked"> idle word guesses</label><label title="Off = finger pans while Pen is selected"><input type="checkbox" ${WB.fingerInk?'checked':''} onchange="WB.fingerInk=this.checked"> finger draws</label><span class="wbai ${hs.cls}" id="wb-ai-status">${esc(hs.txt)}</span>${!WB.hwrPipe?`<button class="mini" id="wb-load-ai" onclick="wbLoadHandwritingAI()" ${WB.aiLoading?'disabled':''}>Load local handwriting AI (~65 MB)</button>`:''}<button class="mini" onclick="wbSmartScan()">Smart scan</button><button class="mini" onclick="mgHwrManualSync()">Sync handwriting</button><span class="wbperf" id="wb-hwr-shared-count">${typeof mgHwrCountV6==='function'?mgHwrCountV6():((wbData().training.samples||[]).length)} personal ink samples loaded</span><span class="wbperf">cached ink rendering · lasso labels override guesses</span></div>
-    ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="recognizing… or type ANY new word/phrase"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
+    ${pn?`<div class="wbedit"><div><b>Node shape detected.</b> ${pn.engine?`<span class="hint">read by ${esc(pn.engine)}</span>`:''}</div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Guessed text</label><input id="wb-pnode-name" value="${esc(nodeGuess)}" placeholder="${pn?.recognizing?'recognizing…':'type or correct ANY word/phrase'}"></div><div class="fld"><label class="eyebrow">Class</label><select id="wb-pnode-cls"><option value="">none</option>${CLASSES.map(c=>`<option value="${c.key}" ${pn.cls===c.key?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" onclick="wbAcceptPendingNode()">Create / link node</button><button class="mini x" onclick="wbRejectPendingNode()">Not a node</button></div></div>${pn.alts&&pn.alts.length?`<div class="wbalt">${pn.alts.slice(0,5).map((x,i)=>`<button onclick="wbUsePendingNodeAlt(${i})">${esc(x)}</button>`).join('')}</div>`:''}</div>`:''}
     ${pa?`<div class="wbedit"><div><b>Arrow detected:</b> <span class="mono">${pa.from?esc(wbItemText(wbNode(pa.from))):'?'}</span> → <span class="mono">${pa.to?esc(wbItemText(wbNode(pa.to))):'?'}</span> <span class="wbconf">shape ${Math.round((pa.score||0)*100)}%</span></div><div class="grid3" style="margin-top:8px"><div class="fld"><label class="eyebrow">Interpret arrow as</label><select id="wb-pending-kind" onchange="WB.pendingArrow.kind=this.value;render()"><option value="relationship" ${pa.kind!=='sequence'?'selected':''}>Relationship</option><option value="sequence" ${pa.kind==='sequence'?'selected':''}>Sequence / next step</option></select></div>${pa.kind==='sequence'?`<div class="fld"><label class="eyebrow">Meaning</label><div class="wbsyntax">previous step → next step</div></div>`:`<div class="fld"><label class="eyebrow">Relationship</label><select id="wb-pending-rel" onchange="WB.pendingArrow.rel=this.value">${wbRelOptions(pa.rel)}</select></div><div class="fld"><label class="eyebrow">Label guess</label><div class="wbsyntax">${esc(pa.labelText||'none')}</div></div>`}</div><div class="actions"><button class="btn" onclick="wbAcceptDetectedArrow()" ${(!pa.from||!pa.to)?'disabled':''}>${pa.kind==='sequence'?'Add sequence connector':'Add relationship'}</button><button class="mini" onclick="wbFlipDetectedArrow()">Flip direction</button>${pa.kind!=='sequence'?`<button class="mini" onclick="wbReadArrowLabel()">Re-read label</button>`:''}<button class="mini x" onclick="wbRejectDetectedArrow()">Not an arrow</button></div>${(!pa.from||!pa.to)?`<div class="hint">Link/lasso the endpoint items first, or use the Arrow tool after labeling them.</div>`:''}</div>`:''}
     ${sel?wbSelectionPanel(sel):''}
     ${gh?`<div class="wbedit"><div><b>Recent handwriting:</b>${gh.engine?` <span class="hint">(${esc(gh.engine)})</span>`:''}</div><div class="grid3" style="margin-top:7px"><div class="fld"><label class="eyebrow">Word / phrase</label><input id="wb-ghost-name" value="${esc(gh.text||'')}" placeholder="type ANY new word or phrase"></div><div class="fld"><label class="eyebrow">Open spelling alternatives</label><div class="wbalt">${(gh.openAlts||gh.alts||[]).slice(0,4).map((x,i)=>`<button onclick="wbUseGhostAlt(${i})">${esc(x)}</button>`).join('')}</div></div><div class="actions" style="border:0;margin:0;padding-top:18px"><button class="btn" onclick="wbMakeGhostNode()">Create node</button><button class="mini x" onclick="WB.ghostText=null;render()">Dismiss</button></div></div></div>`:''}
@@ -2451,5 +2451,449 @@ wbPaint=function(){
   }
 
   ctx.setTransform(1,0,0,1,0,0);
+};
+
+
+/* ==================== V11.3 NODE RECOGNITION COMPLETION FIX ====================
+   Node recognition is personal-model-first. Native browser handwriting is only
+   optional background evidence and can never hold the node panel open forever.
+=============================================================================== */
+function wbTimeoutV113(promise,ms,fallback){
+  return new Promise(resolve=>{
+    let done=false;
+    const t=setTimeout(()=>{if(done)return;done=true;resolve(fallback)},ms);
+    Promise.resolve(promise).then(
+      v=>{if(done)return;done=true;clearTimeout(t);resolve(v)},
+      ()=>{if(done)return;done=true;clearTimeout(t);resolve(fallback)}
+    );
+  });
+}
+
+/* Safari's experimental handwriting prediction may never settle on some builds. */
+const _wbNativeRecognizeV113Base=wbNativeRecognize;
+wbNativeRecognize=async function(strokes){
+  return wbTimeoutV113(_wbNativeRecognizeV113Base(strokes),900,[]);
+};
+
+async function wbEnsurePersonalModelV113(){
+  if(typeof mgV11EnsureCanonical!=='function')return true;
+  await wbTimeoutV113(mgV11EnsureCanonical(),1200,null);
+  return true;
+}
+
+function wbUniqueCandidatesV113(items,limit=8){
+  const out=[],seen=new Set();
+  for(const x of items||[]){
+    const label=String(typeof x==='string'?x:x?.label||'').trim();
+    const k=canon(label);
+    if(!label||!k||seen.has(k))continue;
+    seen.add(k);
+    out.push({
+      label,
+      score:+(typeof x==='string'?0:x?.score)||0,
+      source:typeof x==='string'?'':(x?.source||'')
+    });
+    if(out.length>=limit)break;
+  }
+  return out;
+}
+
+/* Synchronous personal-model recognition: letters + pairs + trios + whole words. */
+function wbPersonalNodeGroupV113(strokes){
+  const candidates=[];
+
+  try{
+    const dec=mgOpenSpellCandidatesV8(strokes);
+    for(const x of dec.candidates||[])candidates.push(x);
+  }catch(e){console.warn('open spelling',e)}
+
+  try{
+    for(const x of wtWordPrototypeMatches(strokes,'node').slice(0,5)){
+      candidates.push({
+        label:x.label,
+        score:Math.min(.72,(+x.score||0)*.78),
+        source:'personal whole-word sample'
+      });
+    }
+  }catch(e){}
+
+  try{
+    for(const x of mgRecognizeChunkV6(strokes,1,5)){
+      candidates.push({
+        label:x.label,
+        score:(+x.score||0)*.92,
+        source:'personal letter'
+      });
+    }
+  }catch(e){}
+
+  candidates.sort((a,b)=>(+b.score||0)-(+a.score||0));
+  return wbUniqueCandidatesV113(candidates,7);
+}
+
+async function wbPersonalNodeRecognizeV113(strokes){
+  await wbEnsurePersonalModelV113();
+
+  let groups=[];
+  try{groups=mgWordGroupsV9(strokes)}catch(e){}
+  if(!groups.length)groups=[strokes];
+  if(groups.length>6)groups=[strokes];
+
+  const perGroup=groups.map(wbPersonalNodeGroupV113);
+
+  if(perGroup.length>1 && perGroup.every(x=>x.length)){
+    const first=perGroup.map(x=>x[0].label).join(' ');
+    const alts=[{
+      label:first,
+      score:perGroup.reduce((s,g)=>s+(g[0].score||0),0)/perGroup.length,
+      source:'personal phrase spelling'
+    }];
+
+    for(let i=0;i<perGroup.length&&alts.length<6;i++){
+      for(const alt of perGroup[i].slice(1,3)){
+        const phrase=perGroup.map((g,j)=>j===i?alt.label:g[0].label).join(' ');
+        alts.push({label:phrase,score:alt.score*.9,source:'personal phrase spelling'});
+      }
+    }
+    return wbUniqueCandidatesV113(alts,7);
+  }
+
+  return wbUniqueCandidatesV113(perGroup.flat(),7);
+}
+
+function wbAppendPendingNodeCandidatesV113(token,items,engine){
+  const p=WB.pendingNode;
+  if(!p||p.token!==token)return false;
+
+  const all=wbUniqueCandidatesV113([
+    ...(p.alts||[]).map(label=>({label,score:1,source:p.engine||''})),
+    ...(items||[])
+  ],8);
+
+  p.alts=all.map(x=>x.label);
+  p.openAlts=[...p.alts];
+  if(!p.name&&all[0]?.label)p.name=all[0].label;
+  if(p.name)p.cls=wbGuessClass(p.name);
+  if(engine)p.engine=engine;
+  return true;
+}
+
+async function wbNodeNativeBonusV113(token,inside){
+  const guesses=await wbNativeRecognize(inside);
+  if(!guesses?.length)return;
+  if(wbAppendPendingNodeCandidatesV113(
+      token,
+      guesses.map((label,i)=>({label,score:.48-i*.03,source:'browser handwriting'})),
+      'personal model + browser handwriting'
+  )) render();
+}
+
+/* This replaces the v11.2 enclosure proposal flow for BOTH draw orders. */
+wbProposeNodeFromEnclosureV112=async function(boundary,info){
+  if(WB.pendingNode||WB.pendingArrow)return false;
+  const inside=wbInsideEnclosure(info,boundary.id);
+  if(!inside.length)return false;
+
+  boundary.role='node-boundary-candidate';
+  const token=uid('pn');
+  const textBounds=wbUnionBounds(inside.map(wbStrokeBounds));
+  const ghost=wbGhostInsideEnclosureV112(info,inside);
+
+  WB.pendingNode={
+    token,
+    boundaryId:boundary.id,
+    strokeIds:inside.map(x=>x.id),
+    bounds:textBounds,
+    textBounds,
+    shapeBounds:{...info.b},
+    name:ghost?.text||'',
+    alts:ghost?.alts?[...ghost.alts]:ghost?.text?[ghost.text]:[],
+    openAlts:ghost?.openAlts?[...ghost.openAlts]:[],
+    knownAlts:ghost?.knownAlts?[...ghost.knownAlts]:[],
+    cls:ghost?.text?wbGuessClass(ghost.text):'',
+    engine:ghost?.engine?'existing word guess':'',
+    feat:info.feat,
+    score:info.score,
+    recognizing:true,
+    recognitionState:'running'
+  };
+  render();
+
+  try{
+    const personal=await wbTimeoutV113(
+      wbPersonalNodeRecognizeV113(inside),
+      1800,
+      []
+    );
+
+    if(!WB.pendingNode||WB.pendingNode.token!==token)return true;
+
+    wbAppendPendingNodeCandidatesV113(
+      token,
+      personal,
+      personal.length
+        ? 'personal open-vocabulary model'
+        : (ghost?'existing word guess':'personal model')
+    );
+
+    WB.pendingNode.recognizing=false;
+    WB.pendingNode.recognitionState=WB.pendingNode.name?'done':'no_guess';
+    if(!WB.pendingNode.name){
+      WB.pendingNode.engine='no confident personal guess — type or correct the word';
+    }
+    render();
+
+    /* Optional bonus; the node panel is already complete. */
+    wbNodeNativeBonusV113(token,inside).catch(()=>{});
+  }catch(e){
+    console.error('Node recognition',e);
+    if(WB.pendingNode&&WB.pendingNode.token===token){
+      WB.pendingNode.recognizing=false;
+      WB.pendingNode.recognitionState='error';
+      WB.pendingNode.engine=ghost
+        ? 'existing word guess'
+        : 'recognition unavailable — type or correct the word';
+      render();
+    }
+  }
+  return true;
+};
+
+/* Explicit completion status in the panel. */
+const _whiteboardHTMLV113=whiteboardHTML;
+whiteboardHTML=function(){
+  let html=_whiteboardHTMLV113();
+  const p=WB.pendingNode;
+  if(p){
+    const status=p.recognizing
+      ? 'recognizing with personal model…'
+      : p.name
+        ? 'recognition complete'
+        : 'no confident guess — type the word below';
+    html=html.replace(
+      '<b>Node shape detected.</b>',
+      `<b>Node shape detected.</b> <span class="hint">${esc(status)}</span>`
+    );
+  }
+  return html;
+};
+
+
+/* ==================== V11.4 WHITEBOARD RECOGNITION CALIBRATION ====================
+   - `mode="letter"` can ONLY compare against letter prototypes.
+   - character scoring uses bitmap + aspect + stroke count + direction.
+   - multiple prototypes vote; one accidental nearest neighbor cannot dominate.
+   - weak spellings are rejected instead of surfacing unrelated words.
+================================================================================== */
+
+let MG114_DESC_CACHE=new Map();
+let MG114_INDEX_CACHE=null;
+let MG114_INDEX_STAMP='';
+
+const _wtAllowedCatsV114=wtAllowedCats;
+wtAllowedCats=function(mode){
+  if(mode==='letter')return new Set(['letter','letter_auto','letter_synthetic_context']);
+  return _wtAllowedCatsV114(mode);
+};
+
+function mg114TrainingStamp(){
+  const T=wtSamples(),last=T[T.length-1];
+  return`${T.length}|${last?.id||''}|${last?.created||0}`;
+}
+function mg114ResetCaches(){
+  MG114_DESC_CACHE.clear();MG114_INDEX_CACHE=null;MG114_INDEX_STAMP='';
+  try{MG_HWR_PROTO_CACHE=null}catch(e){}
+  try{MG_V7_LETTER_GEOM_CACHE=null}catch(e){}
+  try{MG_V8_CHUNK_SCORE_CACHE?.clear?.()}catch(e){}
+}
+const _mgV11ReloadCanonicalV114=mgV11ReloadCanonicalFromStore;
+mgV11ReloadCanonicalFromStore=async function(){
+  const r=await _mgV11ReloadCanonicalV114();
+  mg114ResetCaches();return r;
+};
+window.mgV11ReloadCanonicalFromStore=mgV11ReloadCanonicalFromStore;
+
+function mg114CompactDescriptor(s){
+  const key=s?.id||JSON.stringify([s?.category,s?.label,s?.created]).slice(0,120);
+  if(MG114_DESC_CACHE.has(key))return MG114_DESC_CACHE.get(key);
+  const pts=[];for(const st of(s?.strokes||[]))for(const q of(st.pts||[])){
+    const x=Array.isArray(q)?+q[0]:+q.x,y=Array.isArray(q)?+q[1]:+q.y;
+    if(Number.isFinite(x)&&Number.isFinite(y))pts.push({x,y});
+  }
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(const p of pts){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)}
+  const aspect=pts.length?(x1-x0)/Math.max(.02,y1-y0):1;
+  const dir=Array(8).fill(0);let total=0;
+  for(const st of(s?.strokes||[])){
+    const a=st.pts||[];
+    for(let i=1;i<a.length;i++){
+      const p0=a[i-1],p1=a[i],xA=Array.isArray(p0)?+p0[0]:+p0.x,yA=Array.isArray(p0)?+p0[1]:+p0.y,
+            xB=Array.isArray(p1)?+p1[0]:+p1.x,yB=Array.isArray(p1)?+p1[1]:+p1.y;
+      const dx=xB-xA,dy=yB-yA,l=Math.hypot(dx,dy);if(l<.001)continue;
+      let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI*2;
+      dir[Math.floor(ang/(Math.PI/4))%8]+=l;total+=l;
+    }
+  }
+  if(total)for(let i=0;i<8;i++)dir[i]/=total;
+  const d={sig:s?.sig||[],aspect,strokeCount:(s?.strokes||[]).length||1,dir};
+  MG114_DESC_CACHE.set(key,d);return d;
+}
+function mg114QueryDescriptor(strokes){
+  const b=wtWordBounds(strokes),aspect=b.w/Math.max(1,b.h),dir=Array(8).fill(0);let total=0;
+  for(const st of strokes){
+    const a=st.pts||[];
+    for(let i=1;i<a.length;i++){
+      const dx=a[i].x-a[i-1].x,dy=a[i].y-a[i-1].y,l=Math.hypot(dx,dy);if(l<.2)continue;
+      let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI*2;
+      dir[Math.floor(ang/(Math.PI/4))%8]+=l;total+=l;
+    }
+  }
+  if(total)for(let i=0;i<8;i++)dir[i]/=total;
+  return{sig:wtSparseSignature(strokes),aspect,strokeCount:strokes.length||1,dir};
+}
+function mg114GeomSim(a,b){
+  const pix=wtSigSim(a.sig,b.sig);
+  const asp=Math.exp(-1.25*Math.abs(Math.log((a.aspect+.04)/(b.aspect+.04))));
+  const sc=Math.exp(-Math.abs(a.strokeCount-b.strokeCount)/2.3);
+  let l1=0;for(let i=0;i<8;i++)l1+=Math.abs((a.dir?.[i]||0)-(b.dir?.[i]||0));
+  const dh=Math.max(0,1-l1/2);
+  return .60*pix+.18*asp+.10*sc+.12*dh;
+}
+function mg114Weight(s){
+  if(String(s?.source||'').startsWith('synthetic')||s?.meta?.synthetic)return Math.min(.12,wtOpenSampleWeight(s));
+  return wtOpenSampleWeight(s);
+}
+function mg114Cats(n){
+  return n===1?new Set(['letter','letter_auto','letter_synthetic_context']):
+         n===2?new Set(['letter_pair','pair_auto','pair_synthetic_context']):
+               new Set(['letter_trio','trio_auto','trio_synthetic_context']);
+}
+function mg114Index(){
+  const stamp=mg114TrainingStamp();
+  if(MG114_INDEX_CACHE&&MG114_INDEX_STAMP===stamp)return MG114_INDEX_CACHE;
+  const idx={1:new Map(),2:new Map(),3:new Map()};
+  for(const s of wtSamples()){
+    const label=String(s.label||'').trim().toLowerCase(),
+          n=[...label].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n<1||n>3||!mg114Cats(n).has(s.category)||!s.sig?.length)continue;
+    if(!idx[n].has(label))idx[n].set(label,[]);
+    idx[n].get(label).push(s);
+  }
+  for(const n of[1,2,3])for(const [label,a]of idx[n]){
+    a.sort((x,y)=>mg114Weight(y)-mg114Weight(x)||(y.created||0)-(x.created||0));
+    idx[n].set(label,a.slice(0,14));
+  }
+  MG114_INDEX_CACHE=idx;MG114_INDEX_STAMP=stamp;return idx;
+}
+function mg114Aggregate(vals){
+  vals=vals.filter(Number.isFinite).sort((a,b)=>b-a).slice(0,3);
+  if(!vals.length)return 0;
+  if(vals.length===1)return vals[0]*.88;
+  if(vals.length===2)return vals[0]*.68+vals[1]*.32;
+  return vals[0]*.58+vals[1]*.27+vals[2]*.15;
+}
+mgRecognizeChunkV6=function(strokes,n,limit=5){
+  if(!strokes?.length)return[];
+  const q=mg114QueryDescriptor(strokes),out=[];
+  for(const [label,arr]of mg114Index()[n]){
+    const vals=arr.map(s=>mg114GeomSim(q,mg114CompactDescriptor(s))*mg114Weight(s));
+    const score=mg114Aggregate(vals);
+    if(score>=.12)out.push({label,score,count:vals.length});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,limit);
+};
+mgChunkSpecificMapV8=function(strokes,n,labels){
+  const out=new Map();if(!strokes?.length||!labels?.size)return out;
+  const q=mg114QueryDescriptor(strokes),idx=mg114Index()[n];
+  for(const label of labels){
+    const vals=(idx.get(String(label).toLowerCase())||[]).map(s=>mg114GeomSim(q,mg114CompactDescriptor(s))*mg114Weight(s));
+    out.set(label,mg114Aggregate(vals));
+  }
+  return out;
+};
+
+/* Strict single-letter path: words/nodes are never allowed to masquerade as letters. */
+mgV11RecognizeShort=async function(strokes,mode='node'){
+  if(mode==='letter'){
+    const raw=mgRecognizeChunkV6(strokes,1,7),top=raw[0],second=raw[1],
+          margin=(top?.score||0)-(second?.score||0);
+    const usable=raw.filter(x=>x.score>=.24);
+    return{
+      guesses:usable.map(x=>x.label),
+      openGuesses:usable.map(x=>x.label),
+      knownGuesses:[],
+      engine:usable.length?`calibrated personal letters · margin ${margin.toFixed(2)}`:'no confident personal letter',
+      trainingCount:mgHwrCountV6(),
+      scores:usable
+    };
+  }
+  const P=wtPrototypeMatches(strokes,mode).filter(x=>x.score>=.42);
+  return{guesses:P.map(x=>x.label),openGuesses:P.map(x=>x.label),knownGuesses:[],engine:P.length?'personal prototype':'no confident short-text guess',trainingCount:mgHwrCountV6()};
+};
+
+/* Reject garbage open spellings instead of forcing a known-word answer. */
+const _mgOpenSpellCandidatesV114=mgOpenSpellCandidatesV8;
+mgOpenSpellCandidatesV8=function(strokes){
+  const r=_mgOpenSpellCandidatesV114(strokes);
+  const kept=(r.candidates||[]).filter(x=>x.score>=.20);
+  r.candidates=kept;
+  return r;
+};
+
+mgRecognizeSingleV9=async function(strokes,mode='node'){
+  const dec=mgOpenSpellCandidatesV8(strokes),est=dec.lengthModel.est;
+  if(est<1.45&&!wtLikelyMultiLetter(strokes))return mgV11RecognizeShort(strokes,mode);
+
+  let raw=dec.candidates.slice();
+  for(const x of wtWordPrototypeMatches(strokes,mode).slice(0,3)){
+    if(x.score>=.50&&!raw.some(y=>canon(y.label)===canon(x.label)))
+      raw.push({label:x.label,score:x.score*.82,source:'personal whole-word memory'});
+  }
+  raw.sort((a,b)=>b.score-a.score);
+
+  /* Require either a decent top score or a clear margin. */
+  const top=raw[0],second=raw[1],margin=(top?.score||0)-(second?.score||0);
+  if(!top || (top.score<.24 && margin<.045)){
+    return{guesses:[],openGuesses:[],knownGuesses:[],engine:'no confident raw spelling',trainingCount:mgHwrCountV6(),estimatedCharacters:est};
+  }
+
+  const open=[],seen=new Set();
+  for(const x of raw){
+    if(x.score<.18)continue;
+    const k=canon(x.label);if(!k||seen.has(k))continue;
+    seen.add(k);open.push(x.label);if(open.length>=7)break;
+  }
+
+  /* Known terms remain secondary and never replace raw spelling. */
+  const known=[];
+  const secondary=mode==='relation'?mgRelationSuggestionsV9(raw):mgKnownSuggestionsV7(raw);
+  for(const x of secondary){
+    const k=canon(x.label);if(!k||seen.has(k))continue;
+    seen.add(k);known.push(x.label);if(known.length>=3)break;
+  }
+  return{
+    guesses:[...open,...known],
+    openGuesses:open,knownGuesses:known,
+    engine:`calibrated personal spelling · ~${Math.round(est)} chars`,
+    trainingCount:mgHwrCountV6(),estimatedCharacters:est,
+    topScore:top.score,margin
+  };
+};
+
+/* Node boxes should not auto-fill with a weak arbitrary guess. */
+wbPersonalNodeGroupV113=function(strokes){
+  const candidates=[];
+  try{
+    const dec=mgOpenSpellCandidatesV8(strokes);
+    for(const x of dec.candidates||[])if(x.score>=.24)candidates.push(x);
+  }catch(e){}
+  try{
+    for(const x of wtWordPrototypeMatches(strokes,'node').slice(0,5)){
+      if(x.score>=.52)candidates.push({label:x.label,score:x.score*.82,source:'personal whole-word memory'});
+    }
+  }catch(e){}
+  candidates.sort((a,b)=>(+b.score||0)-(+a.score||0));
+  if(candidates.length>1 && candidates[0].score<.30 && candidates[0].score-candidates[1].score<.04)return[];
+  return wbUniqueCandidatesV113(candidates,7);
 };
 

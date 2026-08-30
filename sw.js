@@ -1,4 +1,4 @@
-const CACHE='medgraph-pwa-v11-2-node-text';
+const CACHE='medgraph-pwa-v11-4-calibrated-recognition';
 const CORE=[
  './','./index.html','./manifest.webmanifest',
  './icon-192.png','./icon-512.png','./apple-touch-icon.png'
