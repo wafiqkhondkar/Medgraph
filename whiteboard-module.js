@@ -2211,3 +2211,245 @@ wbRecognizeStrokes=async function(strokes,mode='node'){
   return _wbRecognizeV11Phrase(strokes,mode);
 };
 
+
+/* ==================== V11.2 SMART NODE TEXT FIX ====================
+   Fixes:
+   1) a smart enclosure uses the drawn enclosure as the semantic node bounds;
+   2) enclosed handwriting is recognized even if the circle/box was drawn first;
+   3) an already-computed ghost word inside the enclosure can seed the node guess;
+   4) the semantic node label is rendered INSIDE the node instead of above it.
+===================================================================== */
+
+function wbRoleBlocksNodeTextV112(st){
+  const r=String(st?.role||'');
+  return r==='node-boundary'||r==='node-boundary-candidate'||
+         r==='arrow'||r==='arrow-candidate'||r==='sequence-arrow';
+}
+
+wbInsideEnclosure=function(info,boundaryId){
+  const W=wbV4Data();
+  return W.strokes.filter(st=>{
+    if(st.id===boundaryId||wbRoleBlocksNodeTextV112(st)||wbStrokeLinked(st.id))return false;
+    const b=wbStrokeBounds(st),c=wbCenter(b);
+    if(!wbInPoly(c,info.p))return false;
+    /* Keep text near the edge; the previous .96-size gate could throw away a
+       long handwritten word inside a relatively tight circle. */
+    return b.w<info.b.w*1.08 && b.h<info.b.h*1.08;
+  });
+};
+
+function wbGhostInsideEnclosureV112(info,inside){
+  const g=WB.ghostText;
+  if(!g?.text||!g.bounds)return null;
+  const c=wbCenter(g.bounds);
+  if(!wbInPoly(c,info.p))return null;
+  const insideIds=new Set((inside||[]).map(s=>s.id));
+  const overlap=(g.strokeIds||[]).filter(id=>insideIds.has(id)).length;
+  return overlap ? g : null;
+}
+
+async function wbRecognizeEnclosedNodeV112(info,boundary,inside){
+  let rr={guesses:[],openGuesses:[],knownGuesses:[],engine:''};
+  if(inside.length){
+    try{rr=await wbRecognizeStrokes(inside,'node')}catch(e){console.error(e)}
+  }
+
+  const ghost=wbGhostInsideEnclosureV112(info,inside);
+  const guesses=[],seen=new Set();
+  const add=x=>{
+    x=String(x||'').trim();
+    const k=canon(x);
+    if(!x||!k||seen.has(k))return;
+    seen.add(k);guesses.push(x);
+  };
+  (rr.guesses||[]).forEach(add);
+  if(ghost)add(ghost.text);
+  (ghost?.alts||[]).forEach(add);
+
+  return {
+    guesses,
+    openGuesses:rr.openGuesses||guesses,
+    knownGuesses:rr.knownGuesses||[],
+    engine:rr.engine || (ghost?'existing smart-word guess':'')
+  };
+}
+
+async function wbProposeNodeFromEnclosureV112(boundary,info){
+  if(WB.pendingNode||WB.pendingArrow)return false;
+  const inside=wbInsideEnclosure(info,boundary.id);
+  if(!inside.length)return false;
+
+  boundary.role='node-boundary-candidate';
+  const token=uid('pn');
+  const textBounds=wbUnionBounds(inside.map(wbStrokeBounds));
+
+  WB.pendingNode={
+    token,
+    boundaryId:boundary.id,
+    strokeIds:inside.map(x=>x.id),
+    /* textBounds is useful for handwriting; shapeBounds is what the node should
+       actually look like on the board. */
+    bounds:textBounds,
+    textBounds,
+    shapeBounds:{...info.b},
+    name:'',
+    alts:[],
+    cls:'',
+    engine:'',
+    feat:info.feat,
+    score:info.score
+  };
+  render();
+
+  const rr=await wbRecognizeEnclosedNodeV112(info,boundary,inside);
+  if(!WB.pendingNode||WB.pendingNode.token!==token)return true;
+
+  WB.pendingNode.alts=rr.guesses||[];
+  WB.pendingNode.openAlts=rr.openGuesses||rr.guesses||[];
+  WB.pendingNode.knownAlts=rr.knownGuesses||[];
+  WB.pendingNode.name=(rr.guesses||[])[0]||'';
+  WB.pendingNode.cls=wbGuessClass(WB.pendingNode.name);
+  WB.pendingNode.engine=rr.engine||'';
+  render();
+  return true;
+}
+
+/* Word first -> circle/box second. */
+wbMaybeEnclosure=async function(st){
+  if(!WB.smart||!WB.autoShapes)return false;
+  const info=wbEnclosureInfo(st);
+  if(!info||info.score<.64)return false;
+  return wbProposeNodeFromEnclosureV112(st,info);
+};
+
+/* Circle/box first -> word second. This is checked after a short writing pause. */
+async function wbMaybeContainingEnclosureV112(latest){
+  if(!WB.smart||!WB.autoShapes||WB.pendingNode||WB.pendingArrow)return false;
+  const c=wbCenter(wbStrokeBounds(latest));
+  let best=null;
+
+  for(const boundary of wbV4Data().strokes){
+    if(boundary.id===latest.id||wbRoleBlocksNodeTextV112(boundary)||wbStrokeLinked(boundary.id))continue;
+    const info=wbEnclosureInfo(boundary);
+    if(!info||info.score<.64||!wbInPoly(c,info.p))continue;
+    if(!best||info.score>best.info.score)best={boundary,info};
+  }
+  return best ? wbProposeNodeFromEnclosureV112(best.boundary,best.info) : false;
+}
+
+/* Preserve the audited v9/v11 word grouping, but check for a pre-existing
+   enclosure before creating a free-floating ghost word. */
+wbScheduleWordGuess=function(st){
+  clearTimeout(WB.wordTimer);
+  if(!WB.autoText)return;
+  const scheduledStrokeId=st.id;
+  WB.wordTimer=setTimeout(async()=>{
+    const current=wbStroke(scheduledStrokeId);
+    if(!current||current.role||WB.pendingNode||WB.pendingArrow)return;
+
+    if(await wbMaybeContainingEnclosureV112(current))return;
+
+    const cl=wbClusterRecent(current);
+    if(!cl.length||cl.length>90)return;
+    const ids=cl.map(x=>x.id),key=ids.join('|');
+
+    const run=async()=>{
+      const rr=await wbRecognizeStrokes(cl,'node');
+      const nowStroke=wbStroke(scheduledStrokeId);
+      if(!nowStroke||nowStroke.role||WB.pendingNode||WB.pendingArrow)return;
+      const now=wbClusterRecent(nowStroke).map(x=>x.id).join('|');
+      if(now!==key)return;
+
+      if(rr.guesses?.length){
+        WB.ghostText={
+          strokeIds:ids,
+          bounds:wbUnionBounds(cl.map(wbStrokeBounds)),
+          text:rr.guesses[0],
+          alts:rr.guesses,
+          openAlts:rr.openGuesses||rr.guesses,
+          knownAlts:rr.knownGuesses||[],
+          engine:rr.engine,
+          cls:wbGuessClass(rr.guesses[0])
+        };
+        render();
+      }
+    };
+    if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1400});
+    else setTimeout(run,20);
+  },1000);
+};
+
+/* Use the enclosure itself as the semantic node bounds, not just the word. */
+wbAcceptPendingNode=async function(){
+  const p=WB.pendingNode;
+  if(!p)return;
+  const inp=document.getElementById('wb-pnode-name'),
+        sel=document.getElementById('wb-pnode-cls'),
+        name=(inp&&inp.value||p.name||'').trim();
+  if(!name)return toast('Need a node name');
+
+  const gid=ensure(name,{}),d=byId(gid),cls=sel&&sel.value;
+  if(cls&&d&&!d.cls)d.cls=cls;
+
+  const b=p.shapeBounds||p.bounds;
+  const ids=[...p.strokeIds,p.boundaryId];
+  wbLinkBoardNode(gid,b,ids,{
+    kind:'node',
+    auto:true,
+    textBounds:p.textBounds||p.bounds,
+    shapeBounds:p.shapeBounds||null
+  });
+
+  const bs=wbStroke(p.boundaryId);
+  if(bs)bs.role='node-boundary';
+  wbTrain('node',p.feat,true);
+  WB.pendingNode=null;
+  WB.ghostText=null;
+  bump();
+  await save();
+  refresh();
+  render();
+  toast(`Linked ${termOf(gid)}`);
+};
+
+/* Final renderer: semantic label is visibly INSIDE the node. Handwritten ink
+   remains underneath; the small translucent tag sits along the inside top edge. */
+const _wbPaintNodeTextV112=wbPaint;
+wbPaint=function(){
+  _wbPaintNodeTextV112();
+
+  const c=wbCanvas();
+  if(!c)return;
+  const ctx=c.getContext('2d'),vis=wbVisibleBounds(),V=wbCamera();
+  wbWorldTransform(ctx);
+
+  for(const n of wbV4Data().nodes){
+    if(!wbBoxHit(n,vis))continue;
+    const txt=n.kind==='step'?`${n.stepOrder||'?'} · ${wbItemText(n)}`:wbItemText(n);
+    if(!txt)continue;
+
+    ctx.save();
+    const fs=11/V.zoom,pad=5/V.zoom;
+    ctx.font=`600 ${fs}px IBM Plex Mono, monospace`;
+    const maxW=Math.max(28/V.zoom,n.w-12/V.zoom);
+    const measured=ctx.measureText(txt).width;
+    const boxW=Math.min(maxW,measured+pad*2);
+    const boxH=18/V.zoom;
+
+    /* top-left, but INSIDE the node */
+    const x=n.x+6/V.zoom;
+    const y=n.y+6/V.zoom;
+
+    ctx.fillStyle='rgba(255,255,255,.88)';
+    ctx.fillRect(x,y,boxW,boxH);
+    ctx.fillStyle=n.kind==='step'?'#6B46C1':'#0F766E';
+    ctx.beginPath();
+    ctx.rect(x,y,boxW,boxH);
+    ctx.clip();
+    ctx.fillText(txt,x+pad,y+13/V.zoom);
+    ctx.restore();
+  }
+
+  ctx.setTransform(1,0,0,1,0,0);
+};
+

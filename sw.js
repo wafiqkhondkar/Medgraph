@@ -1,4 +1,4 @@
-const CACHE='medgraph-pwa-v11-1-stable';
+const CACHE='medgraph-pwa-v11-2-node-text';
 const CORE=[
  './','./index.html','./manifest.webmanifest',
  './icon-192.png','./icon-512.png','./apple-touch-icon.png'

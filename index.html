@@ -5940,7 +5940,7 @@ function ensureWhiteboardModuleV11(){
   if(WB_MODULE_PROMISE_V11)return WB_MODULE_PROMISE_V11;
   WB_MODULE_PROMISE_V11=new Promise((resolve,reject)=>{
     const s=document.createElement('script');
-    s.src='./whiteboard-module.js?v=11';
+    s.src='./whiteboard-module.js?v=11.2';
     s.async=true;
     s.onload=()=>{WB_MODULE_READY_V11=true;resolve(true)};
     s.onerror=()=>{WB_MODULE_PROMISE_V11=null;reject(new Error('Could not load Whiteboard module'))};
