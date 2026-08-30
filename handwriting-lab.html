@@ -76,7 +76,7 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
 </head>
 <body>
 <header>
-  <div class="brand">Handwriting Lab<small>for MedGraph · v9</small></div><button class="hbtn" onclick="labGoMedGraph()">← MedGraph</button>
+  <div class="brand">Handwriting Lab<small>for MedGraph · v11</small></div><button class="hbtn" onclick="labGoMedGraph()">← Back to MedGraph</button>
   <div class="tabs" id="tabs"></div>
   <div class="hright">
     <span class="status" id="save-status">local</span>
@@ -1689,7 +1689,7 @@ labGoMedGraph=async function(){
   try{await labV7FlushAll()}catch(e){alert('Could not save before switching:\n'+e.message);return}
   location.assign('./index.html');
 };
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')labV7FlushAll().catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')labV11FlushForClose().catch(()=>{})});
 
 
 /* V8 full backup: training + trainer state travel together. */
@@ -1823,7 +1823,97 @@ rederiveSelected=function(){
   }));labV7MarkTrainingDirty();saveLocal();render();toast(`Rebuilt ${letters} letters · ${pairs} pairs · ${trios} trios from corrected boundaries`)
 };
 
-(async()=>{try{await loadLocal();training();await labInitShared();render()}catch(e){console.error(e);document.getElementById('app').innerHTML=`<div class="panel"><h2>Handwriting Lab could not open</h2><div class="notice warn">${esc(e.message||e)}</div><button class="btn" onclick="location.reload()">Reload</button></div>`}})();
+
+/* ==================== V10 LEAN LAB BRIDGE ==================== */
+async function labV10LoadFast(){
+  /* State and training are already separate records. Do not rerun every legacy
+     merge on every visit. */
+  let state=null,t=null;
+  try{state=await labV6Get(LAB_V6_STATE_KEY)}catch(e){}
+  try{t=await labV6Get(LAB_V6_TRAINING_KEY)}catch(e){}
+  if(state){
+    S={...S,...state,
+      canvas:{...S.canvas,...(state.canvas||{}),active:null},
+      test:{...S.test,...(state.test||{}),active:null},
+      segment:{...S.segment,...(state.segment||{})}
+    };
+  }
+  if(t)S.personalTraining=labV6Merge(labV6EmptyTraining(),t);
+  else{
+    /* One-time fallback for a pre-v6 device. */
+    await loadLocal();
+  }
+  training();
+  return samples().length;
+}
+async function labV10FlushAndNotify(type='medgraph-ink-saved-v11'){
+  await labV7FlushAll();
+  const count=samples().length;
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({type,count,updatedAt:training().updatedAt||Date.now()},location.origin);
+    }
+  }catch(e){}
+  return count;
+}
+labGoMedGraph=async function(){
+  const el=document.getElementById('save-status');if(el)el.textContent='saving…';
+  try{
+    const count=await labV10FlushAndNotify('medgraph-close-ink-v11');
+    if(window.parent===window)location.assign('./index.html');
+    else if(el)el.textContent=`saved · ${count} samples`;
+  }catch(e){
+    console.error(e);if(el)el.textContent='save failed';alert('Could not save Ink Lab:\n'+e.message);
+  }
+};
+window.addEventListener('message',async e=>{
+  if(e.origin!==location.origin)return;
+  if(e.data?.type==='medgraph-request-ink-close-v11')await labGoMedGraph();
+});
+/* The parent only needs a revision/count after a real training flush. */
+const _labV10FlushTraining=labV7FlushTraining;
+labV7FlushTraining=async function(force=false){
+  const n=await _labV10FlushTraining(force);
+  if(force||!LAB_V7_TRAIN_DIRTY){
+    try{
+      if(window.parent&&window.parent!==window)
+        window.parent.postMessage({type:'medgraph-ink-saved-v11',count:samples().length},location.origin);
+    }catch(e){}
+  }
+  return n;
+};
+
+
+/* V11.1: close/background saves write the big corpus only when it changed. */
+async function labV11FlushForClose(){
+  clearTimeout(LAB_V7_STATE_TIMER);
+  if(LAB_V7_TRAIN_DIRTY)await labV7FlushTraining(false);
+  await labV7SaveStateNow();
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=`saved · ${samples().length} samples`;
+  return samples().length;
+}
+labV10FlushAndNotify=async function(type='medgraph-ink-saved-v11'){
+  const count=await labV11FlushForClose();
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({type,count,updatedAt:training().updatedAt||Date.now()},location.origin);
+    }
+  }catch(e){}
+  return count;
+};
+
+(async()=>{
+  try{
+    await labV10LoadFast();
+    render();
+    if(window.parent&&window.parent!==window)
+      window.parent.postMessage({type:'medgraph-ink-ready-v11',count:samples().length},location.origin);
+  }catch(e){
+    console.error(e);
+    document.getElementById('app').innerHTML=`<div class="panel"><h2>Handwriting Lab could not open</h2><div class="notice warn">${esc(e.message||e)}</div><button class="btn" onclick="location.reload()">Reload</button></div>`;
+  }
+})();
 </script>
 <script>
 (function(){

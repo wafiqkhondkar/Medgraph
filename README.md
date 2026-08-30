@@ -88,3 +88,27 @@ When moving from Ink Lab back to MedGraph, the Lab awaits the IndexedDB write be
 - Phrase splitting is more conservative to avoid turning one long word into multiple 2–3 letter words.
 - Apple Pencil boundary edits are persisted even on pointercancel/lost capture.
 - v9 imports verify declared sample counts/checksums when present; v9 exports serialize, parse, recount, and re-checksum before saving.
+
+## v10 lean architecture
+The previous builds accumulated multiple migration/synchronization layers. v10 removes those from the normal startup path.
+
+- Ordinary MedGraph startup loads the graph only. The handwriting IndexedDB record is lazy-loaded only when Whiteboard recognition or Ink Lab needs it.
+- Ink Lab opens inside MedGraph as a lazy iframe overlay. Switching back does not navigate/reload the PWA.
+- The Lab flushes IndexedDB before closing, then sends a same-origin message to MedGraph.
+- MedGraph rereads and **replaces** its in-memory training object from IndexedDB after the Lab closes. It does not merge a stale copy.
+- Legacy handwriting migration runs only when the canonical IndexedDB record is genuinely missing.
+- The Ink Lab itself loads its canonical `training` and `lab-state` records directly; it does not rescan old storage on every visit.
+
+## v11 modular cleanup
+
+This is a structural cleanup, not another recognition patch.
+
+- `index.html` no longer contains the historical Whiteboard/recognition stack.
+- `whiteboard-module.js` is loaded only when Whiteboard or the inline Ink Trainer is opened.
+- Ink Lab stays independent and lazy-loads in the existing full-screen overlay.
+- Normal MedGraph startup loads graph/UI code only.
+- Normal startup does not open IndexedDB for handwriting.
+- Full export/import lazily loads the handwriting module only when training data is involved.
+- Ink Lab closes through a save → postMessage → close handshake; the parent does not navigate away.
+- The parent replaces its canonical in-memory handwriting model from IndexedDB after Ink Lab closes instead of accumulating stale copies.
+- The service worker no longer pre-caches the heavy Whiteboard or Ink Lab JavaScript during installation; each is cached after first use.
