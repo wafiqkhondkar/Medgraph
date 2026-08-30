@@ -76,7 +76,7 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
 </head>
 <body>
 <header>
-  <div class="brand">Handwriting Lab<small>for MedGraph</small></div><button class="hbtn" onclick="location.href='./index.html'">← MedGraph</button>
+  <div class="brand">Handwriting Lab<small>for MedGraph · v11</small></div><button class="hbtn" onclick="labGoMedGraph()">← Back to MedGraph</button>
   <div class="tabs" id="tabs"></div>
   <div class="hright">
     <span class="status" id="save-status">local</span>
@@ -450,27 +450,77 @@ function segResetOverrides(){
 
 
 let SEG_VIEW=null;
+let SEG_DRAG=null;
+let SEG_DRAG_RAF=0;
+function segCanvasWorldPoint(e,c){
+  if(!SEG_VIEW)return null;
+  const r=c.getBoundingClientRect(),px=(e.clientX-r.left)*(c.width/r.width),py=(e.clientY-r.top)*(c.height/r.height);
+  return{x:(px-SEG_VIEW.ox)/SEG_VIEW.sc+SEG_VIEW.b.x,y:(py-SEG_VIEW.oy)/SEG_VIEW.sc+SEG_VIEW.b.y,px,py};
+}
+function segHitWordAt(x,y){
+  if(!SEG_VIEW)return null;let hit=null;
+  SEG_VIEW.seg.lines.forEach((L,li)=>L.words.forEach((w,wi)=>{
+    const pad=Math.max(4,w.b.h*.10);
+    if(x>=w.b.x-pad&&x<=w.b.x+w.b.w+pad&&y>=w.b.y-pad&&y<=w.b.y+w.b.h+pad)hit={li,wi,w};
+  }));return hit;
+}
+function segNearestBoundary(hit,x){
+  const cuts=hit?.w?.cutFractions||[];if(!cuts.length)return null;
+  let index=0,best=Infinity;
+  cuts.forEach((f,i)=>{const bx=hit.w.b.x+hit.w.b.w*f,d=Math.abs(x-bx);if(d<best){best=d;index=i}});
+  return{index,distance:best,worldX:hit.w.b.x+hit.w.b.w*cuts[index]};
+}
+function segBeginBoundaryDrag(e,c,hit,boundary){
+  S.segment.selectedWordKey=hit.li+':'+hit.wi;S.segment.boundaryIndex=boundary.index;
+  SEG_DRAG={pointerId:e.pointerId,li:hit.li,wi:hit.wi,index:boundary.index,pointerType:e.pointerType||'mouse',
+    sampleId:S.segment.sampleId,key:hit.li+':'+hit.wi,bounds:{...hit.w.b},cuts:(hit.w.cutFractions||[]).slice()};
+  try{c.setPointerCapture(e.pointerId)}catch(_){}
+}
+function segQueueDragPaint(){
+  if(SEG_DRAG_RAF)return;SEG_DRAG_RAF=requestAnimationFrame(()=>{SEG_DRAG_RAF=0;paintSegmentLive()});
+}
+function segDragBoundaryTo(e,c,commit=false){
+  if(!SEG_DRAG||SEG_DRAG.pointerId!==e.pointerId)return false;
+  const q=segCanvasWorldPoint(e,c);if(!q)return false;
+  const D=SEG_DRAG,w=D.bounds,cuts=D.cuts.slice(),i=D.index;if(!cuts.length)return false;
+  let frac=(q.x-w.x)/Math.max(1,w.w),lo=i?cuts[i-1]+.025:.04,hi=i<cuts.length-1?cuts[i+1]-.025:.96;
+  frac=Math.max(lo,Math.min(hi,frac));cuts[i]=frac;D.cuts=cuts;
+  S.segment.selectedWordKey=D.key;S.segment.boundaryIndex=i;
+  segOverride(D.sampleId).charCuts[D.key]=cuts;
+  const lbl=document.getElementById('seg-boundary-value');if(lbl)lbl.textContent=Math.round(frac*100)+'%';
+  if(commit)saveLocal();segQueueDragPaint();return true;
+}
 function initSegCanvas(){
-  const c=document.getElementById('seg-canvas');if(!c||c._segInit)return;c._segInit=true;
-  c.style.touchAction='none';
+  const c=document.getElementById('seg-canvas');if(!c||c._segInit)return;c._segInit=true;c.style.touchAction='none';
   c.addEventListener('pointerdown',e=>{
-    if(!SEG_VIEW)return;
-    const r=c.getBoundingClientRect(),px=(e.clientX-r.left)*(c.width/r.width),py=(e.clientY-r.top)*(c.height/r.height);
-    const x=(px-SEG_VIEW.ox)/SEG_VIEW.sc+SEG_VIEW.b.x;
-    const y=(py-SEG_VIEW.oy)/SEG_VIEW.sc+SEG_VIEW.b.y;
-    let hit=null;
-    SEG_VIEW.seg.lines.forEach((L,li)=>L.words.forEach((w,wi)=>{
-      if(x>=w.b.x&&x<=w.b.x+w.b.w&&y>=w.b.y&&y<=w.b.y+w.b.h)hit={li,wi,w};
-    }));
-    if(!hit)return;
-    const key=hit.li+':'+hit.wi;
-    if(S.segment.selectedWordKey!==key){S.segment.selectedWordKey=key;S.segment.boundaryIndex=0;render();return}
-    if(!(hit.w.cutFractions||[]).length)return;
-    const frac=Math.max(.04,Math.min(.96,(x-hit.w.b.x)/Math.max(1,hit.w.b.w)));
-    let bi=0,best=Infinity;(hit.w.cutFractions||[]).forEach((v,i)=>{const d=Math.abs(v-frac);if(d<best){best=d;bi=i}});
-    S.segment.boundaryIndex=bi;
-    segSetBoundaryValue(frac*100,true);render();
+    if(e.cancelable)e.preventDefault();const q=segCanvasWorldPoint(e,c);if(!q)return;
+    const hit=segHitWordAt(q.x,q.y);if(!hit)return;
+    const key=hit.li+':'+hit.wi,b=segNearestBoundary(hit,q.x);
+    const thresholdPx=e.pointerType==='pen'?32:e.pointerType==='touch'?28:18;
+    const distPx=b?b.distance*SEG_VIEW.sc:Infinity;
+    if(S.segment.selectedWordKey!==key){
+      S.segment.selectedWordKey=key;S.segment.boundaryIndex=b?.index||0;
+      /* Pencil can grab a divider in one motion; no select-then-drag round trip. */
+      if(b&&e.pointerType==='pen'&&distPx<=thresholdPx){segBeginBoundaryDrag(e,c,hit,b);paintSegmentLive();return}
+      render();return
+    }
+    /* Apple Pencil: touching near a divider grabs it immediately. */
+    if(b&&distPx<=thresholdPx){segBeginBoundaryDrag(e,c,hit,b);paintSegmentLive();return}
+    /* Pencil/touch inside a selected word moves the nearest divider and keeps it grabbed. */
+    if(b&&(e.pointerType==='pen'||e.pointerType==='touch')){
+      segBeginBoundaryDrag(e,c,hit,b);segDragBoundaryTo(e,c,false);return;
+    }
+    /* Mouse/simple tap remains a quick reposition gesture. */
+    if(b){S.segment.boundaryIndex=b.index;segSetBoundaryValue((q.x-hit.w.b.x)/Math.max(1,hit.w.b.w)*100,true);render()}
   });
+  c.addEventListener('pointermove',e=>{if(!SEG_DRAG||SEG_DRAG.pointerId!==e.pointerId)return;if(e.cancelable)e.preventDefault();segDragBoundaryTo(e,c,false)});
+  const finish=e=>{
+    if(!SEG_DRAG||SEG_DRAG.pointerId!==e.pointerId)return;if(e.cancelable)e.preventDefault();
+    segDragBoundaryTo(e,c,true);try{if(c.hasPointerCapture?.(e.pointerId))c.releasePointerCapture(e.pointerId)}catch(_){}
+    SEG_DRAG=null;render();
+  };
+  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',e=>{if(SEG_DRAG?.pointerId===e.pointerId){if(e.cancelable)e.preventDefault();saveLocal();SEG_DRAG=null;render()}});
+  c.addEventListener('lostpointercapture',e=>{if(SEG_DRAG?.pointerId===e.pointerId){saveLocal();SEG_DRAG=null;render()}});
 }
 
 function realStrokesFromSample(s){
@@ -961,11 +1011,11 @@ function segmentHTML(){
   return `<div class="grid2"><div class="panel"><div class="ph"><h2>Segmentation editor</h2><span class="hint">purple = line · green/red = word · orange = letter boundary</span></div>
     <div class="fld"><label class="eyebrow">Sample</label><select onchange="S.segment.sampleId=this.value;S.segment.angle=null;S.segment.selectedWordKey='0:0';S.segment.boundaryIndex=0;render()">${real.map(x=>`<option value="${x.id}" ${x.id===s.id?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div>
     <div class="canvaswrap"><canvas class="ink" id="seg-canvas" width="900" height="440"></canvas></div>
-    <div class="hint" style="margin-top:6px"><b>Tap a word</b> to select it. Then tap where you want the nearest orange letter divider to move.</div>
+    <div class="hint" style="margin-top:6px"><b>Apple Pencil:</b> select a word, then press and drag an orange divider/handle left or right. Touch and mouse work too.</div>
     <div class="fld" style="margin-top:10px"><label class="eyebrow">Deskew angle <span id="angle-val">${(ang*180/Math.PI).toFixed(1)}°</span></label><input type="range" min="-35" max="35" step=".5" value="${(ang*180/Math.PI).toFixed(1)}" oninput="S.segment.angle=+this.value;document.getElementById('angle-val').textContent=this.value+'°';paintSegmentLive()"></div>
     <div class="actions"><button class="mini" onclick="S.segment.angle=${(C.auto*180/Math.PI).toFixed(3)};render()">Auto angle</button><button class="mini danger" onclick="segResetOverrides()">Reset all edits</button><button class="btn" onclick="rederiveSelected()">Rebuild letters + pairs + trios</button></div>
   </div>
-  <div class="panel"><div class="ph"><h3>Detected structure</h3><span class="hint">select a word, then place every letter boundary yourself</span></div>
+  <div class="panel"><div class="ph"><h3>Detected structure</h3><span class="hint">select a word, then drag every letter boundary yourself — Apple Pencil supported</span></div>
     <div class="seglist">${seg.lines.map((L,li)=>`<div class="segrow"><b>Line ${li+1}</b><div class="hint">${L.words.length} word region(s)</div>${L.words.map((w,wi)=>`<button class="segrow ${li===selLi&&wi===selWi?'sel':''}" style="width:100%;text-align:left;margin-top:6px;cursor:pointer" onclick="S.segment.selectedWordKey='${li}:${wi}';S.segment.boundaryIndex=0;render()"><b>${esc(w.text||'unlabeled word')}</b><div class="tagrow">${w.chars.map(ch=>`<span class="pill auto">${esc(ch.char||'?')}</span>`).join('')}</div></button>`).join('')}</div>`).join('')}</div>
     ${sw?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)">
       <div class="eyebrow">Selected word region</div>
@@ -983,7 +1033,7 @@ function segmentHTML(){
           <span class="hint">Divider ${bi+1}/${cuts.length}: <b>${esc(left)} | ${esc(right)}</b></span></div>
       </div>`:'<div class="notice warn" style="margin-top:10px">This region has fewer than 2 labeled characters. Correct its label first.</div>'}
     </div>`:''}
-    <div class="notice" style="margin-top:10px"><b>How it works:</b> the lab finds lines and words first. Because you already told it the word label, it knows how many letters there must be. It starts with approximate orange dividers, but you can now move every divider directly. Those corrected regions are what get saved as inferred letters, pairs, and trios.</div>
+    <div class="notice" style="margin-top:10px"><b>How it works:</b> the lab finds lines and words first. Because you already told it the word label, it knows how many letters there must be. It starts with approximate orange dividers. Drag the orange handles directly with Apple Pencil, touch, or mouse. Those corrected regions are what get saved as inferred letters, pairs, and trios.</div>
   </div></div>`
 }
 function paintSegmentLive(){
@@ -994,6 +1044,15 @@ function paintSegmentLive(){
   R.forEach(st=>drawStroke(x,st,tf,'#12171c',1.9));
   const seg2=JSON.parse(JSON.stringify(C.seg));seg2.lines.forEach((L,li)=>{L.b={x:ox+(L.b.x-b.x)*sc,y:oy+(L.b.y-b.y)*sc,w:L.b.w*sc,h:L.b.h*sc};L.words.forEach((w,wi)=>{w.b={x:ox+(w.b.x-b.x)*sc,y:oy+(w.b.y-b.y)*sc,w:w.b.w*sc,h:w.b.h*sc};w.chars.forEach(ch=>{ch.x=ox+(ch.x-b.x)*sc;ch.y=oy+(ch.y-b.y)*sc;ch.w*=sc;ch.h*=sc})})});
   drawSegOverlay(x,seg2);
+  /* Large Pencil-friendly handles on the selected word's internal dividers. */
+  const sk=String(S.segment.selectedWordKey||'0:0').split(':').map(Number),vw=seg2.lines?.[sk[0]]?.words?.[sk[1]];
+  if(vw&&(vw.chars||[]).length>1){
+    x.save();x.strokeStyle='#C2410C';x.fillStyle='#FFF7ED';x.lineWidth=3;
+    for(let i=0;i<vw.chars.length-1;i++){const bx=vw.chars[i].x+vw.chars[i].w,cy=vw.b.y+vw.b.h/2;
+      x.beginPath();x.moveTo(bx,vw.b.y-7);x.lineTo(bx,vw.b.y+vw.b.h+7);x.stroke();
+      x.beginPath();x.arc(bx,cy,7,0,Math.PI*2);x.fill();x.stroke();
+    }x.restore();
+  }
   SEG_VIEW={b,sc,ox,oy,seg:C.seg};
 }
 function rederiveSelected(){
@@ -1071,7 +1130,790 @@ function render(){
   if(S.tab==='generate')setTimeout(()=>S.gen.previews.forEach((p,i)=>paintPreview('prev-'+i,p)),0);
   if(S.tab==='test'){initInkCanvas('test-canvas');paintCanvas('test-canvas')}
 }
-loadLocal();training();labInitShared();render();
+
+/* ==================== V6 DURABLE PERSONAL TRAINING ====================
+   The training corpus is now independent of S.graph / S.standalone and lives
+   in IndexedDB. This fixes two separate v5 failure modes:
+   1) loading the main graph could switch training() to a smaller graph-owned
+      array, making newer trainer work appear to vanish;
+   2) keeping the same stroke corpus twice in localStorage could hit Safari's
+      quota, leaving the shared copy stuck at an older sample count.
+======================================================================= */
+const LAB_V6_DB='medgraph_handwriting_v6';
+const LAB_V6_STORE='kv';
+const LAB_V6_TRAINING_KEY='training';
+const LAB_V6_STATE_KEY='lab-state';
+let LAB_V6_DBP=null;
+let LAB_V6_SAVE_CHAIN=Promise.resolve();
+
+function labV6EmptyTraining(){
+  return{version:6,updatedAt:Date.now(),samples:[],arrowPos:[],arrowNeg:[],nodePos:[],nodeNeg:[],lab:{}};
+}
+function labV6SampleKey(s){
+  if(s?.id)return 'id:'+s.id;
+  return[
+    s?.category||'',String(s?.label||'').toLowerCase(),s?.source||'',
+    JSON.stringify(s?.sig||[]).slice(0,260)
+  ].join('|');
+}
+function labV6Merge(dst,src){
+  dst=dst||labV6EmptyTraining();src=src||{};
+  dst.samples=Array.isArray(dst.samples)?dst.samples:[];
+  const seen=new Set(dst.samples.map(labV6SampleKey));
+  for(const s of (Array.isArray(src.samples)?src.samples:[])){
+    const k=labV6SampleKey(s);if(!seen.has(k)){dst.samples.push(s);seen.add(k)}
+  }
+  for(const k of ['arrowPos','arrowNeg','nodePos','nodeNeg']){
+    dst[k]=Array.isArray(dst[k])?dst[k]:[];
+    const have=new Set(dst[k].map(x=>JSON.stringify(x)));
+    for(const x of (Array.isArray(src[k])?src[k]:[])){
+      const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}
+    }
+  }
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};
+  dst.version=6;dst.updatedAt=Date.now();return dst;
+}
+function labV6OpenDB(){
+  if(LAB_V6_DBP)return LAB_V6_DBP;
+  LAB_V6_DBP=new Promise((resolve,reject)=>{
+    const r=indexedDB.open(LAB_V6_DB,1);
+    r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(LAB_V6_STORE))db.createObjectStore(LAB_V6_STORE)};
+    r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);
+  });
+  return LAB_V6_DBP;
+}
+async function labV6Get(key){
+  const db=await labV6OpenDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(LAB_V6_STORE,'readonly'),rq=tx.objectStore(LAB_V6_STORE).get(key);
+    rq.onsuccess=()=>resolve(rq.result);rq.onerror=()=>reject(rq.error);
+  });
+}
+async function labV6Put(key,value){
+  const db=await labV6OpenDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(LAB_V6_STORE,'readwrite');
+    tx.objectStore(LAB_V6_STORE).put(value,key);
+    tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('IndexedDB write aborted'));
+  });
+}
+function labV6TrainingFromLegacyState(x){
+  const out=labV6EmptyTraining();
+  const merge=t=>{if(t&&typeof t==='object')labV6Merge(out,t)};
+  merge(x?.personalTraining);
+  merge(x?.standalone?.whiteboard?.training);
+  merge(x?.graph?.whiteboard?.training);
+  return out;
+}
+function labV6TrainingFromMainGraph(){
+  try{
+    const mg=JSON.parse(localStorage.getItem(MEDGRAPH_MAIN_LS)||'null');
+    return mg?.whiteboard?.training||null;
+  }catch(e){return null}
+}
+function labV6TrainingFromSharedV5(){
+  try{return JSON.parse(localStorage.getItem(LAB_SHARED_KEY)||'null')}catch(e){return null}
+}
+
+/* training() no longer changes when a graph is imported/loaded. */
+training=function(){
+  S.personalTraining=S.personalTraining||labV6EmptyTraining();
+  S.personalTraining.samples=S.personalTraining.samples||[];
+  S.personalTraining.lab=S.personalTraining.lab||{};
+  return S.personalTraining;
+};
+samples=function(){return training().samples};
+
+function labV6StateSnapshot(){
+  const x={...S};
+  /* training has its own IndexedDB record; don't duplicate it inside state */
+  delete x.personalTraining;
+  /* strip legacy graph-owned copies so one corpus isn't stored three times */
+  if(x.standalone?.whiteboard?.training){
+    x.standalone={...x.standalone,whiteboard:{...x.standalone.whiteboard,training:{samples:[]}}};
+  }
+  if(x.graph?.whiteboard?.training){
+    x.graph={...x.graph,whiteboard:{...x.graph.whiteboard,training:{...x.graph.whiteboard.training,samples:[]}}};
+  }
+  return x;
+}
+async function labV6PersistNow(){
+  const T=training();T.version=6;T.updatedAt=Date.now();
+  await labV6Put(LAB_V6_TRAINING_KEY,T);
+  await labV6Put(LAB_V6_STATE_KEY,labV6StateSnapshot());
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=`saved · ${T.samples.length} samples · IndexedDB`;
+  return T.samples.length;
+}
+function saveLocal(){
+  LAB_V6_SAVE_CHAIN=LAB_V6_SAVE_CHAIN.then(()=>labV6PersistNow()).catch(e=>{
+    console.error('Handwriting save failed',e);
+    const el=document.getElementById('save-status');if(el)el.textContent='save failed';
+  });
+  return LAB_V6_SAVE_CHAIN;
+}
+async function loadLocal(){
+  let oldState=null,idbState=null,idbTraining=null;
+  try{oldState=JSON.parse(localStorage.getItem(LS)||'null')}catch(e){}
+  try{idbState=await labV6Get(LAB_V6_STATE_KEY)}catch(e){}
+  try{idbTraining=await labV6Get(LAB_V6_TRAINING_KEY)}catch(e){}
+
+  const state=idbState||oldState;
+  if(state){
+    S={...S,...state,
+      canvas:{...S.canvas,...(state.canvas||{}),active:null},
+      test:{...S.test,...(state.test||{}),active:null},
+      segment:{...S.segment,...(state.segment||{})}
+    };
+  }
+
+  const merged=labV6EmptyTraining();
+  labV6Merge(merged,idbTraining);
+  labV6Merge(merged,labV6TrainingFromLegacyState(oldState));
+  labV6Merge(merged,labV6TrainingFromSharedV5());
+  labV6Merge(merged,labV6TrainingFromMainGraph());
+  /* Also recover copies that may have been preserved inside the loaded IDB state. */
+  labV6Merge(merged,labV6TrainingFromLegacyState(idbState));
+  S.personalTraining=merged;
+
+  /* Persist the recovered superset before freeing the duplicate localStorage data. */
+  try{
+    await labV6PersistNow();
+    localStorage.removeItem(LS);
+    localStorage.removeItem(LAB_SHARED_KEY);
+  }catch(e){console.warn('Migration kept legacy backup because IndexedDB write failed',e)}
+}
+labWriteShared=function(){saveLocal();return samples().length};
+labPullShared=function(){return samples().length};
+labInitShared=async function(){
+  /* No second shared localStorage copy. IndexedDB is the shared source of truth. */
+  try{
+    if('BroadcastChannel'in window){
+      LAB_HWR_BC=new BroadcastChannel('medgraph-handwriting-v6');
+      LAB_HWR_BC.onmessage=async e=>{
+        if(e.data?.type==='training-updated'){
+          const incoming=await labV6Get(LAB_V6_TRAINING_KEY).catch(()=>null);
+          if(incoming){labV6Merge(training(),incoming);render()}
+        }
+      };
+    }
+  }catch(e){}
+};
+syncTrainingFromMainMedGraph=function(){
+  /* Merge only. Never assign S.graph here: doing that caused v5's apparent deletion. */
+  const t=labV6TrainingFromMainGraph();if(t)labV6Merge(training(),t);return !!t;
+};
+syncTrainingToMainMedGraph=function(){saveLocal();return true};
+
+const _labV6VocabBase=vocab;
+vocab=function(){
+  const out=[..._labV6VocabBase()];
+  try{
+    const mg=JSON.parse(localStorage.getItem(MEDGRAPH_MAIN_LS)||'null');
+    (mg?.defs||[]).forEach(d=>{if(d?.term)out.push(d.term);(d?.aliases||[]).forEach(a=>out.push(a))});
+  }catch(e){}
+  return [...new Set(out.filter(Boolean))];
+};
+
+exportMedGraph=function(){
+  const G=structuredClone(graph()||{defs:[],whiteboard:{}});
+  G.whiteboard=G.whiteboard||{};
+  G.whiteboard.training=structuredClone(training());
+  training().lab={...(training().lab||{}),lastLabExport:Date.now(),validation:S.validation};
+  download('medgraph_with_handwriting_training.json',JSON.stringify(G,null,2));
+};
+exportPack=function(){
+  download('medgraph_handwriting_training_pack.json',JSON.stringify({
+    version:6,created:Date.now(),training:training(),samples:samples(),validation:S.validation
+  },null,2));
+};
+resetLab=async function(){
+  if(!confirm('Reset the Handwriting Lab workspace and personal handwriting model? Export first if you want a backup.'))return;
+  S.personalTraining=labV6EmptyTraining();
+  S.validation=[];S.graph=null;S.standalone={defs:[],whiteboard:{training:{samples:[]}}};
+  await labV6PersistNow();location.reload();
+};
+async function labGoMedGraph(){
+  await saveLocal();
+  try{
+    if(LAB_HWR_BC)LAB_HWR_BC.postMessage({type:'training-updated',count:samples().length});
+  }catch(e){}
+  location.href='./index.html';
+}
+window.addEventListener('pagehide',()=>{try{saveLocal()}catch(e){}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')try{saveLocal()}catch(e){}});
+
+
+/* ==================== V7 FAST / STABLE / VERIFIED EXPORT ====================
+   Main changes:
+   - UI state saves are separated from the large training corpus.
+   - The training corpus is written only when it actually changes.
+   - Dashboard analytics are cached and bounded.
+   - Data table is paginated instead of creating thousands of DOM rows.
+   - Export is built from the canonical IndexedDB corpus, self-checked before save,
+     and import understands every previous MedGraph handwriting export shape.
+============================================================================ */
+let LAB_V7_TRAIN_DIRTY=false;
+let LAB_V7_TRAIN_TIMER=null;
+let LAB_V7_STATE_TIMER=null;
+let LAB_V7_ANALYTICS_CACHE=null;
+let LAB_V7_DATA_PAGE=0;
+const LAB_V7_PAGE_SIZE=100;
+
+function labV7MarkTrainingDirty(){
+  LAB_V7_TRAIN_DIRTY=true;
+  LAB_V7_ANALYTICS_CACHE=null;
+  clearTimeout(LAB_V7_TRAIN_TIMER);
+  LAB_V7_TRAIN_TIMER=setTimeout(()=>labV7FlushTraining().catch(console.error),500);
+}
+function labV7StateSnapshot(){
+  const x=labV6StateSnapshot();
+  /* Generated previews and free-test ink are ephemeral and can become large. */
+  if(x.gen)x.gen={...x.gen,previews:[]};
+  if(x.test)x.test={...x.test,strokes:[],active:null,result:null};
+  if(x.canvas)x.canvas={...x.canvas,active:null};
+  return x;
+}
+async function labV7SaveStateNow(){
+  await labV6Put(LAB_V6_STATE_KEY,labV7StateSnapshot());
+}
+async function labV7FlushTraining(force=false){
+  if(!LAB_V7_TRAIN_DIRTY&&!force)return samples().length;
+  clearTimeout(LAB_V7_TRAIN_TIMER);
+  const T=training();T.version=7;T.updatedAt=Date.now();
+  await labV6Put(LAB_V6_TRAINING_KEY,T);
+  LAB_V7_TRAIN_DIRTY=false;
+  try{
+    if(LAB_HWR_BC)LAB_HWR_BC.postMessage({type:'training-updated',count:T.samples.length,version:7});
+  }catch(e){}
+  return T.samples.length;
+}
+async function labV7FlushAll(){
+  clearTimeout(LAB_V7_STATE_TIMER);
+  await labV7FlushTraining(true);
+  await labV7SaveStateNow();
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=`saved · ${samples().length} samples`;
+  return samples().length;
+}
+/* saveLocal is now cheap. Most calls only save workspace state. */
+saveLocal=function(){
+  clearTimeout(LAB_V7_STATE_TIMER);
+  LAB_V7_STATE_TIMER=setTimeout(()=>labV7SaveStateNow().catch(console.error),180);
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=LAB_V7_TRAIN_DIRTY?'saving training…':'saved';
+  return Promise.resolve(samples().length);
+};
+
+/* Mark every training mutation. */
+const _labV7StoreSample=storeSample;
+storeSample=function(category,label,strokes,meta={},source='lab-real'){
+  const s=_labV7StoreSample(category,label,strokes,meta,source);
+  labV7MarkTrainingDirty();
+  return s;
+};
+const _labV7MergeTrainingPack=mergeTrainingPack;
+mergeTrainingPack=function(x){
+  const before=samples().length,n=_labV7MergeTrainingPack(x);
+  if(samples().length!==before)labV7MarkTrainingDirty();
+  return n;
+};
+
+/* ----- bounded/cached analytics ----- */
+function labV7AnalyticsKey(){
+  const T=samples(),last=T[T.length-1];
+  return`${T.length}|${last?.id||''}|${last?.created||0}|${S.validation.length}`;
+}
+function labV7PrototypeGroups(){
+  const by=new Map();
+  for(const s of samples()){
+    if(!['letter','letter_auto','letter_synthetic_context'].includes(s.category)||!s.sig?.length)continue;
+    const lab=String(s.label||'').toLowerCase();
+    if(!/^[a-z]$/.test(lab))continue;
+    if(!by.has(lab))by.set(lab,[]);
+    by.get(lab).push(s);
+  }
+  for(const [k,a]of by){
+    a.sort((x,y)=>sampleWeight(y)-sampleWeight(x)||(y.created||0)-(x.created||0));
+    by.set(k,a.slice(0,8));
+  }
+  return by;
+}
+letterModelReport=function(){
+  const key=labV7AnalyticsKey();
+  if(LAB_V7_ANALYTICS_CACHE?.key===key&&LAB_V7_ANALYTICS_CACHE.report)return LAB_V7_ANALYTICS_CACHE.report;
+  const alphabet=[...'abcdefghijklmnopqrstuvwxyz'],groups=labV7PrototypeGroups();
+  const directBy=new Map(alphabet.map(ch=>[ch,[]]));
+  for(const s of samples()){
+    const lab=String(s.label||'').toLowerCase();
+    if(s.category==='letter'&&!isSyntheticSample(s)&&directBy.has(lab))directBy.get(lab).push(s);
+  }
+  const report=alphabet.map(ch=>{
+    const tests=directBy.get(ch).slice(-10);
+    let correct=0,marginSum=0,confusions={};
+    for(const t of tests){
+      let own=0,bestOther=0,bestOtherLab='';
+      for(const lab of alphabet){
+        let best=0;
+        for(const p of(groups.get(lab)||[])){
+          if(p.id===t.id)continue;
+          best=Math.max(best,sigSim(t.sig,p.sig)*sampleWeight(p));
+        }
+        if(lab===ch)own=best;
+        else if(best>bestOther){bestOther=best;bestOtherLab=lab}
+      }
+      if(own>=bestOther&&own>0)correct++;
+      else if(bestOtherLab)confusions[bestOtherLab]=(confusions[bestOtherLab]||0)+1;
+      marginSum+=own-bestOther;
+    }
+    const acc=tests.length?correct/tests.length:0;
+    const margin=tests.length?marginSum/tests.length:-.15;
+    const sep=Math.max(0,Math.min(1,(margin+.08)/.35));
+    const coverage=Math.min(1,tests.length/8);
+    let confidence=tests.length?(.60*acc+.22*sep+.18*coverage):0;
+    if(tests.length<3)confidence*=.65;
+    const confusion=Object.entries(confusions).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    return{ch,count:tests.length,accuracy:acc,margin,coverage,confidence,confusion};
+  });
+  LAB_V7_ANALYTICS_CACHE={...(LAB_V7_ANALYTICS_CACHE||{}),key,report};
+  return report;
+};
+weakestLetters=function(limit=10){
+  return letterModelReport().slice().sort((a,b)=>a.confidence-b.confidence||a.count-b.count).slice(0,limit);
+};
+const _labV7CommonNgrams=commonNgrams;
+commonNgrams=function(n,limit=30){
+  const key=labV7AnalyticsKey()+`|ng${n}|${limit}`;
+  LAB_V7_ANALYTICS_CACHE=LAB_V7_ANALYTICS_CACHE||{};
+  LAB_V7_ANALYTICS_CACHE.ng=LAB_V7_ANALYTICS_CACHE.ng||{};
+  if(LAB_V7_ANALYTICS_CACHE.ng[key])return LAB_V7_ANALYTICS_CACHE.ng[key];
+  const v=_labV7CommonNgrams(n,limit);
+  LAB_V7_ANALYTICS_CACHE.ng[key]=v;return v;
+};
+
+async function labV7RunValidation(){
+  const btn=document.getElementById('lab-v7-eval');
+  if(btn){btn.disabled=true;btn.textContent='Running…'}
+  await new Promise(r=>setTimeout(r,20));
+  const r0=evaluate(false),r1=evaluate(true);
+  training().lab=training().lab||{};
+  training().lab.lastValidationEvaluation={
+    at:Date.now(),realOnly:r0?.acc??null,withSynthetic:r1?.acc??null,count:S.validation.length
+  };
+  labV7MarkTrainingDirty();await labV7FlushTraining();
+  render();
+}
+dashHTML=function(){
+  const T=samples(),C=coverage(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,
+    synt=T.filter(isSyntheticSample).length,weak=weakestLetters(10),pairs=commonNgrams(2,12),trios=commonNgrams(3,10),
+    ev=training().lab?.lastValidationEvaluation;
+  return `<div class="panel"><div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode'}</span></div>
+    <div class="metrics"><div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${real}</b><span>real labeled</span></div><div class="metric"><b>${C.auto}</b><span>letters inferred</span></div><div class="metric"><b>${synt}</b><span>synthetic</span></div><div class="metric"><b>${S.validation.length}</b><span>validation</span></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Letter confidence</h3><span class="hint">bounded leave-one-out estimate</span></div>
+      <div class="tagrow">${C.report.map(x=>`<span class="pill ${x.confidence>=.75?'real':x.confidence>=.45?'auto':'syn'}" title="${x.count} direct examples${x.confusion?' · confused with '+x.confusion:''}">${x.ch} ${Math.round(x.confidence*100)}%</span>`).join('')}</div>
+      <div class="hint" style="margin-top:8px">Lowest: ${weak.slice(0,5).map(x=>`${x.ch} ${Math.round(x.confidence*100)}%`).join(' · ')}</div>
+    </div>
+    <div class="panel"><div class="ph"><h3>Validation</h3></div>
+      ${ev?`<div class="metrics" style="grid-template-columns:1fr 1fr"><div class="metric"><b>${ev.realOnly==null?'—':Math.round(ev.realOnly*100)+'%'}</b><span>real only</span></div><div class="metric"><b>${ev.withSynthetic==null?'—':Math.round(ev.withSynthetic*100)+'%'}</b><span>with synthetic</span></div></div><div class="hint">Last run: ${new Date(ev.at).toLocaleString()}</div>`:'<div class="notice">Validation is no longer recalculated on every screen render.</div>'}
+      <button class="mini" id="lab-v7-eval" onclick="labV7RunValidation()" style="margin-top:8px">Run validation test</button>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Common pairs</h3></div><div class="tagrow">${pairs.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div></div>
+    <div class="panel"><div class="ph"><h3>Common trios</h3></div><div class="tagrow">${trios.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div></div>
+  </div>
+  <div class="panel"><div class="ph"><h3>Best next training</h3></div><ol>${recs().map(x=>`<li style="margin:6px 0">${esc(x)}</li>`).join('')}</ol></div>`;
+};
+
+/* Paginate the giant sample table instead of rendering every row. */
+dataHTML=function(){
+  const T=samples(),pages=Math.max(1,Math.ceil(T.length/LAB_V7_PAGE_SIZE));
+  LAB_V7_DATA_PAGE=Math.max(0,Math.min(pages-1,LAB_V7_DATA_PAGE));
+  const start=Math.max(0,T.length-(LAB_V7_DATA_PAGE+1)*LAB_V7_PAGE_SIZE),
+        end=T.length-LAB_V7_DATA_PAGE*LAB_V7_PAGE_SIZE,
+        rows=T.slice(start,end).reverse();
+  return `<div class="panel"><div class="ph"><h2>Data & backup</h2><span class="hint">${T.length} canonical training samples</span></div>
+    <div class="actions">
+      <button class="btn" onclick="importClick()">Import JSON</button>
+      <button class="btn ghost" onclick="exportMedGraph()">Export full MedGraph + training</button>
+      <button class="mini" onclick="exportPack()">Export training backup</button>
+      <button class="mini" onclick="labV7VerifyStorage()">Verify stored data</button>
+    </div>
+    <div id="lab-v7-audit" class="notice" style="margin-top:10px">Exports are built from the canonical IndexedDB model and are parsed + count-checked before download.</div>
+  </div>
+  <div class="panel"><div class="ph"><h3>Training samples</h3><span class="hint">showing ${rows.length} · newest page ${LAB_V7_DATA_PAGE+1}/${pages}</span></div>
+    <div class="actions" style="margin-bottom:8px"><button class="mini" ${LAB_V7_DATA_PAGE>=pages-1?'disabled':''} onclick="LAB_V7_DATA_PAGE++;render()">Older</button><button class="mini" ${LAB_V7_DATA_PAGE<=0?'disabled':''} onclick="LAB_V7_DATA_PAGE--;render()">Newer</button></div>
+    <div class="scrollbox"><table class="table"><thead><tr><th>Label</th><th>Category</th><th>Source</th><th>Weight</th><th></th></tr></thead><tbody>
+      ${rows.map(s=>`<tr><td>${esc(s.label)}</td><td>${esc(s.category)}</td><td>${esc(s.source||'unknown')}</td><td>${sampleWeight(s).toFixed(2)}</td><td><button class="mini danger" onclick="labV7DeleteSample('${s.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="5">No samples</td></tr>'}
+    </tbody></table></div>
+  </div>`;
+};
+function labV7DeleteSample(id){
+  const i=samples().findIndex(x=>x.id===id);
+  if(i>=0){samples().splice(i,1);labV7MarkTrainingDirty();saveLocal();render()}
+}
+
+/* ----- verified export/import ----- */
+function labV7CategoryCounts(T){
+  const out={};for(const s of(T.samples||[]))out[s.category||'unknown']=(out[s.category||'unknown']||0)+1;return out;
+}
+async function labV7Sha256(text){
+  try{
+    const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+    return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+  }catch(e){
+    let h=2166136261;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619)}return'fnv-'+(h>>>0).toString(16)
+  }
+}
+function labV7ExportState(){
+  return{
+    guided:{set:S.guided?.set,reps:S.guided?.reps,saved:S.guided?.saved||0},
+    segment:{overrides:S.segment?.overrides||{}},
+    generator:{slant:S.gen?.slant,size:S.gen?.size,spacing:S.gen?.spacing,jitter:S.gen?.jitter},
+    validation:S.validation||[]
+  };
+}
+async function labV7BuildTrainingPack(){
+  await labV7FlushAll();
+  const stored=(await labV6Get(LAB_V6_TRAINING_KEY))||training();
+  const T=structuredClone(stored);
+  const canonical=JSON.stringify(T);
+  const checksum=await labV7Sha256(canonical);
+  const pack={
+    format:'medgraph-handwriting-training-pack',
+    version:7,
+    created:new Date().toISOString(),
+    sampleCount:(T.samples||[]).length,
+    categoryCounts:labV7CategoryCounts(T),
+    checksum,
+    training:T,
+    validation:structuredClone(S.validation||[]),
+    labState:structuredClone(labV7ExportState())
+  };
+  /* In-memory round-trip assertion before the file leaves the app. */
+  const parsed=JSON.parse(JSON.stringify(pack));
+  const roundCount=parsed?.training?.samples?.length||0;
+  const roundChecksum=await labV7Sha256(JSON.stringify(parsed.training));
+  if(roundCount!==pack.sampleCount||roundChecksum!==checksum){
+    throw new Error(`Export self-check failed: expected ${pack.sampleCount}, got ${roundCount}`);
+  }
+  return pack;
+}
+async function labV7SaveJson(name,obj){
+  const text=JSON.stringify(obj,null,2);
+  try{
+    const file=new File([text],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.share&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:name});return true;
+    }
+  }catch(e){if(e?.name==='AbortError')return false}
+  download(name,text);return true;
+}
+exportPack=async function(){
+  try{
+    const pack=await labV7BuildTrainingPack();
+    await labV7SaveJson('medgraph_handwriting_training_v7.json',pack);
+    toast(`Verified export · ${pack.sampleCount} samples`);
+  }catch(e){alert('Export failed before download:\n'+e.message)}
+};
+exportMedGraph=async function(){
+  try{
+    const pack=await labV7BuildTrainingPack();
+    const G=structuredClone(graph()||{defs:[],rels:[],seqs:[]});
+    G.whiteboard=G.whiteboard||{};
+    G.whiteboard.training=structuredClone(pack.training);
+    G.whiteboard.training.lab={...(G.whiteboard.training.lab||{}),
+      validation:structuredClone(S.validation||[]),
+      exportMeta:{version:7,created:pack.created,sampleCount:pack.sampleCount,categoryCounts:pack.categoryCounts,checksum:pack.checksum}
+    };
+    const parsed=JSON.parse(JSON.stringify(G));
+    const n=parsed?.whiteboard?.training?.samples?.length||0;
+    if(n!==pack.sampleCount)throw new Error(`Full export lost training samples (${n}/${pack.sampleCount})`);
+    await labV7SaveJson('medgraph_with_handwriting_v7.json',G);
+    toast(`Verified full export · ${n} training samples`);
+  }catch(e){alert('Export failed before download:\n'+e.message)}
+};
+async function labV7VerifyStorage(){
+  const el=document.getElementById('lab-v7-audit');
+  if(el)el.textContent='Checking…';
+  try{
+    await labV7FlushAll();
+    const db=(await labV6Get(LAB_V6_TRAINING_KEY))||{};
+    const mem=training();
+    const memN=(mem.samples||[]).length,dbN=(db.samples||[]).length;
+    const memHash=await labV7Sha256(JSON.stringify(mem)),dbHash=await labV7Sha256(JSON.stringify(db));
+    const cats=labV7CategoryCounts(db);
+    if(el)el.innerHTML=`<b>${memN===dbN&&memHash===dbHash?'PASS':'MISMATCH'}</b> · memory ${memN} · IndexedDB ${dbN}<br><span class="hint">${esc(JSON.stringify(cats))}</span>`;
+  }catch(e){if(el)el.textContent='Verification failed: '+e.message}
+}
+importFile=async function(f){
+  if(!f)return;
+  try{
+    const x=JSON.parse(await f.text());
+    let incomingGraph=null,incomingTraining=null,validation=null,labState=null;
+    if(x?.format==='medgraph-handwriting-training-pack'){
+      incomingTraining=x.training;validation=x.validation;labState=x.labState;
+    }else if(x?.training?.samples){
+      incomingTraining=x.training;validation=x.validation;labState=x.labState;
+    }else if(Array.isArray(x?.samples)){
+      incomingTraining={samples:x.samples};validation=x.validation;
+    }else{
+      incomingGraph=x.graph||x;
+      incomingTraining=incomingGraph?.whiteboard?.training||null;
+      validation=incomingTraining?.lab?.validation||x.validation||null;
+    }
+    if(incomingGraph&&(incomingGraph.defs||incomingGraph.rels||incomingGraph.seqs||incomingGraph.whiteboard)){
+      S.graph=incomingGraph;
+      /* Do not leave a second huge training copy attached to the graph. */
+      if(S.graph.whiteboard?.training)S.graph.whiteboard.training={...S.graph.whiteboard.training,samples:[]};
+    }
+    if(!incomingTraining&&!incomingGraph)throw Error('No MedGraph or handwriting training data found');
+    const before=samples().length;
+    if(incomingTraining)labV6Merge(training(),incomingTraining);
+    if(Array.isArray(validation)){
+      for(const v of validation)if(!S.validation.some(z=>z.id===v.id))S.validation.push(v);
+    }
+    if(labState?.segment?.overrides)S.segment.overrides={...S.segment.overrides,...labState.segment.overrides};
+    if(labState?.guided)S.guided={...S.guided,...labState.guided,active:false,queue:[],i:0};
+    if(labState?.generator)S.gen={...S.gen,...labState.generator,previews:[]};
+    labV7MarkTrainingDirty();await labV7FlushAll();LAB_V7_ANALYTICS_CACHE=null;render();
+    toast(`Imported · ${samples().length-before} new · ${samples().length} total`);
+  }catch(e){alert('Could not import file:\n'+e.message)}
+};
+
+/* Navigation explicitly flushes both state and training before leaving. */
+labGoMedGraph=async function(){
+  const el=document.getElementById('save-status');if(el)el.textContent='saving before switch…';
+  try{await labV7FlushAll()}catch(e){alert('Could not save before switching:\n'+e.message);return}
+  location.assign('./index.html');
+};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')labV11FlushForClose().catch(()=>{})});
+
+
+/* V8 full backup: training + trainer state travel together. */
+function labV8BackupState(){return{version:8,validation:structuredClone(S.validation||[]),labState:structuredClone(labV7ExportState())}}
+async function labV8AttachBackup(T){
+  T.lab=T.lab||{};T.lab.backupV8=labV8BackupState();return T;
+}
+const _labV8BuildPackBase=labV7BuildTrainingPack;
+labV7BuildTrainingPack=async function(){
+  const pack=await _labV8BuildPackBase();await labV8AttachBackup(pack.training);
+  pack.version=8;pack.format='medgraph-handwriting-training-pack';pack.validation=structuredClone(S.validation||[]);pack.labState=structuredClone(labV7ExportState());
+  pack.sampleCount=pack.training.samples?.length||0;pack.categoryCounts=labV7CategoryCounts(pack.training);pack.checksum=await labV9TrainingChecksum(pack.training);
+  const rt=JSON.parse(JSON.stringify(pack));if((rt.training?.samples?.length||0)!==pack.sampleCount)throw new Error('V8 backup self-check failed');return pack;
+};
+exportMedGraph=async function(){
+  try{
+    const pack=await labV7BuildTrainingPack(),G=structuredClone(graph()||{defs:[],rels:[],seqs:[]});G.whiteboard=G.whiteboard||{};G.whiteboard.training=structuredClone(pack.training);
+    G.whiteboard.training.lab={...(G.whiteboard.training.lab||{}),exportMeta:{version:8,created:pack.created,sampleCount:pack.sampleCount,categoryCounts:pack.categoryCounts,checksum:pack.checksum},backupV8:{validation:pack.validation,labState:pack.labState}};
+    const rt=JSON.parse(JSON.stringify(G)),n=rt?.whiteboard?.training?.samples?.length||0,b=rt?.whiteboard?.training?.lab?.backupV8;
+    if(n!==pack.sampleCount||!Array.isArray(b?.validation)||!b?.labState)throw new Error(`Full backup verification failed (${n}/${pack.sampleCount})`);
+    await labV7SaveJson('medgraph_with_handwriting_v8.json',G);toast(`Verified full backup · ${n} samples + trainer state`);
+  }catch(e){alert('Export failed before download:\n'+e.message)}
+};
+/* Read embedded trainer state from a full MedGraph backup too. */
+const _labV8ImportFileBase=importFile;
+importFile=async function(f){
+  if(!f)return;let x;try{x=JSON.parse(await f.text())}catch(e){return alert('Could not import file:\n'+e.message)}
+  try{
+    let incomingGraph=null,incomingTraining=null,validation=null,labState=null;
+    if(x?.format==='medgraph-handwriting-training-pack'){incomingTraining=x.training;validation=x.validation||x.training?.lab?.backupV8?.validation;labState=x.labState||x.training?.lab?.backupV8?.labState}
+    else if(x?.training?.samples){incomingTraining=x.training;validation=x.validation||x.training?.lab?.backupV8?.validation;labState=x.labState||x.training?.lab?.backupV8?.labState}
+    else if(Array.isArray(x?.samples)){incomingTraining={samples:x.samples};validation=x.validation}
+    else{incomingGraph=x.graph||x;incomingTraining=incomingGraph?.whiteboard?.training||null;validation=incomingTraining?.lab?.backupV8?.validation||incomingTraining?.lab?.validation||x.validation;labState=incomingTraining?.lab?.backupV8?.labState||null}
+    if(incomingGraph&&(incomingGraph.defs||incomingGraph.rels||incomingGraph.seqs||incomingGraph.whiteboard)){S.graph=incomingGraph;if(S.graph.whiteboard?.training)S.graph.whiteboard.training={...S.graph.whiteboard.training,samples:[]}}
+    if(!incomingTraining&&!incomingGraph)throw Error('No MedGraph or handwriting training data found');
+    const before=samples().length;if(incomingTraining)labV6Merge(training(),incomingTraining);
+    if(Array.isArray(validation))for(const v of validation)if(!S.validation.some(z=>z.id===v.id))S.validation.push(v);
+    if(labState?.segment?.overrides)S.segment.overrides={...S.segment.overrides,...labState.segment.overrides};
+    if(labState?.guided)S.guided={...S.guided,...labState.guided,active:false,queue:[],i:0};
+    if(labState?.generator)S.gen={...S.gen,...labState.generator,previews:[]};
+    labV7MarkTrainingDirty();await labV7FlushAll();LAB_V7_ANALYTICS_CACHE=null;render();toast(`Imported · ${samples().length-before} new · ${samples().length} total + trainer state`);
+  }catch(e){alert('Could not import file:\n'+e.message)}
+};
+
+
+/* ==================== V9 STABILITY / PENCIL / BACKUP HARDENING ==================== */
+const LAB_BUILD_V9='9.0-stable';
+const LAB_V9_SIG_CACHE=new WeakMap();
+function labV9Pop32(x){x=x-((x>>>1)&0x55555555);x=(x&0x33333333)+((x>>>2)&0x33333333);return((((x+(x>>>4))&0x0F0F0F0F)*0x01010101)>>>24)}
+function labV9Bits(a){
+  if(!a||typeof a!=='object')return{b:new Uint32Array(18),n:0};
+  let q=LAB_V9_SIG_CACHE.get(a);if(q)return q;
+  const b=new Uint32Array(18);let n=0;for(const v0 of a){const v=v0|0;if(v<0||v>=576)continue;const i=v>>>5,m=1<<(v&31);if(!(b[i]&m)){b[i]|=m;n++}}
+  q={b,n};LAB_V9_SIG_CACHE.set(a,q);return q;
+}
+sigSim=function(a,b){if(!a?.length||!b?.length)return 0;const A=labV9Bits(a),B=labV9Bits(b);let inter=0;for(let i=0;i<18;i++)inter+=labV9Pop32(A.b[i]&B.b[i]);return inter/Math.max(1,A.n+B.n-inter)};
+
+/* Same-ID imports are updates, not automatic drops. This prevents an older copy
+   of a sample from winning just because it was loaded first. Invalid entries are
+   skipped instead of poisoning the recognizer. */
+function labV9ValidSample(s){return!!(s&&typeof s==='object'&&typeof s.category==='string'&&('label'in s)&&Array.isArray(s.sig)&&Array.isArray(s.strokes))}
+function labV9MergeTraining(dst,src){
+  dst=dst||labV6EmptyTraining();src=src||{};dst.samples=Array.isArray(dst.samples)?dst.samples:[];
+  const byId=new Map();dst.samples.forEach((s,i)=>{if(s?.id)byId.set(s.id,i)});
+  let added=0,updated=0,skipped=0;
+  for(const raw of(Array.isArray(src.samples)?src.samples:[])){
+    if(!labV9ValidSample(raw)){skipped++;continue}const s=raw;
+    if(s.id&&byId.has(s.id)){const i=byId.get(s.id),old=dst.samples[i];const oldRich=JSON.stringify(old).length,newRich=JSON.stringify(s).length;if((s.updated||s.created||0)>(old.updated||old.created||0)||newRich>oldRich){dst.samples[i]={...old,...s,meta:{...(old.meta||{}),...(s.meta||{})}};updated++}continue}
+    if(!s.id)s.id='imp_'+Math.random().toString(36).slice(2)+Date.now().toString(36);
+    byId.set(s.id,dst.samples.length);dst.samples.push(s);added++;
+  }
+  for(const k of['arrowPos','arrowNeg','nodePos','nodeNeg']){dst[k]=Array.isArray(dst[k])?dst[k]:[];const have=new Set(dst[k].map(x=>JSON.stringify(x)));for(const x of(Array.isArray(src[k])?src[k]:[])){const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}}}
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};dst.version=9;dst.updatedAt=Date.now();return{dst,added,updated,skipped};
+}
+labV6Merge=function(dst,src){return labV9MergeTraining(dst,src).dst};
+
+/* Build/checksum after *all* trainer state has been attached, then verify the
+   serialized payload rather than only the pre-serialization object. */
+function labV9ChecksumView(T){const x=structuredClone(T||{});if(x.lab?.exportMeta)delete x.lab.exportMeta;return x}
+async function labV9TrainingChecksum(T){return labV7Sha256(JSON.stringify(labV9ChecksumView(T)))}
+const _labV9PackBase=labV7BuildTrainingPack;
+labV7BuildTrainingPack=async function(){
+  const pack=await _labV9PackBase();pack.version=9;pack.format='medgraph-handwriting-training-pack';
+  pack.training.lab=pack.training.lab||{};pack.training.lab.backupV9={version:9,validation:structuredClone(S.validation||[]),labState:structuredClone(labV7ExportState())};
+  pack.validation=structuredClone(S.validation||[]);pack.labState=structuredClone(labV7ExportState());pack.sampleCount=pack.training.samples?.length||0;pack.categoryCounts=labV7CategoryCounts(pack.training);pack.checksum=await labV7Sha256(JSON.stringify(pack.training));
+  const text=JSON.stringify(pack),rt=JSON.parse(text),n=rt?.training?.samples?.length||0,sum=await labV9TrainingChecksum(rt.training);
+  if(n!==pack.sampleCount||sum!==pack.checksum||!rt.training?.lab?.backupV9?.labState)throw new Error(`Backup self-check failed (${n}/${pack.sampleCount})`);return pack;
+};
+exportPack=async function(){try{const p=await labV7BuildTrainingPack();await labV7SaveJson('medgraph_handwriting_training_v9.json',p);toast(`Verified backup · ${p.sampleCount} samples`)}catch(e){alert('Export failed before download:\n'+e.message)}};
+exportMedGraph=async function(){try{const p=await labV7BuildTrainingPack(),Gx=structuredClone(graph()||{defs:[],rels:[],seqs:[]});Gx.whiteboard=Gx.whiteboard||{};Gx.whiteboard.training=structuredClone(p.training);Gx.whiteboard.training.lab={...(Gx.whiteboard.training.lab||{}),exportMeta:{version:9,created:p.created,sampleCount:p.sampleCount,categoryCounts:p.categoryCounts,checksum:p.checksum},backupV9:p.training.lab.backupV9};const text=JSON.stringify(Gx),rt=JSON.parse(text),T=rt?.whiteboard?.training,n=T?.samples?.length||0,sum=await labV9TrainingChecksum(T);if(n!==p.sampleCount||sum!==p.checksum)throw new Error(`Full backup self-check failed (${n}/${p.sampleCount})`);await labV7SaveJson('medgraph_with_handwriting_v9.json',Gx);toast(`Verified full backup · ${n} samples + trainer state`)}catch(e){alert('Export failed before download:\n'+e.message)}};
+
+function labV9ExtractImport(x){
+  if(x?.format==='medgraph-handwriting-training-pack')return{training:x.training,validation:x.validation||x.training?.lab?.backupV9?.validation||x.training?.lab?.backupV8?.validation,labState:x.labState||x.training?.lab?.backupV9?.labState||x.training?.lab?.backupV8?.labState,declared:x.sampleCount,checksum:x.checksum};
+  if(x?.training?.samples)return{training:x.training,validation:x.validation,labState:x.labState,declared:x.sampleCount,checksum:x.checksum};
+  if(Array.isArray(x?.samples))return{training:{samples:x.samples},validation:x.validation,labState:x.labState,declared:x.sampleCount,checksum:x.checksum};
+  const g=x?.graph||x,t=g?.whiteboard?.training;return{graph:g,training:t,validation:t?.lab?.backupV9?.validation||t?.lab?.backupV8?.validation||t?.lab?.validation||x.validation,labState:t?.lab?.backupV9?.labState||t?.lab?.backupV8?.labState,declared:t?.lab?.exportMeta?.sampleCount,checksum:t?.lab?.exportMeta?.checksum};
+}
+importFile=async function(f){if(!f)return;try{const x=JSON.parse(await f.text()),I=labV9ExtractImport(x);if(!I.training&&!I.graph)throw Error('No MedGraph or handwriting training data found');if(I.training){const actual=I.training.samples?.length||0;if(I.declared!=null&&+I.declared!==actual)throw Error(`Backup count mismatch: file says ${I.declared}, contains ${actual}`);if(I.checksum){const sum=await labV9TrainingChecksum(I.training);if(sum!==I.checksum)throw Error('Backup checksum mismatch — file may be incomplete or from a partially written export')}}if(I.graph&&(I.graph.defs||I.graph.rels||I.graph.seqs||I.graph.whiteboard)){S.graph=I.graph;if(S.graph.whiteboard?.training)S.graph.whiteboard.training={...S.graph.whiteboard.training,samples:[]}}const before=samples().length,res=I.training?labV9MergeTraining(training(),I.training):{added:0,updated:0,skipped:0};if(Array.isArray(I.validation))for(const v of I.validation)if(!S.validation.some(z=>z.id===v.id))S.validation.push(v);const L=I.labState||{};if(L.segment?.overrides)S.segment.overrides={...S.segment.overrides,...L.segment.overrides};if(L.guided)S.guided={...S.guided,...L.guided,active:false,queue:[],i:0};if(L.generator||L.gen)S.gen={...S.gen,...(L.generator||L.gen),previews:[]};labV7MarkTrainingDirty();await labV7FlushAll();LAB_V7_ANALYTICS_CACHE=null;render();toast(`Import verified · +${res.added} new · ${res.updated} updated · ${samples().length} total`)}catch(e){alert('Could not import file:\n'+e.message)}};
+
+/* Corrected real-word context should use the corrected segmentation, not the
+   original possibly-wrong sample label. */
+const _rederiveV9Base=rederiveSelected;
+rederiveSelected=function(){return _rederiveV9Base()};
+
+/* Reload the canonical corpus on Safari BFCache restores instead of keeping a
+   stale in-memory copy. */
+window.addEventListener('pageshow',async e=>{if(!e.persisted)return;try{const t=await labV6Get(LAB_V6_TRAINING_KEY);if(t){S.personalTraining=t;LAB_V7_ANALYTICS_CACHE=null}render()}catch(err){console.error(err)}});
+
+
+/* ---------- v9 segmentation cleanup ---------- */
+const _segmentInkV9Base=segmentInk;
+segmentInk=function(strokes,forcedAngle=null,label=''){
+  const seg=_segmentInkV9Base(strokes,forcedAngle,label),labelLines=String(label||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  seg.lines.forEach((L,li)=>{
+    const tokens=(labelLines[li]||'').split(/\s+/).filter(Boolean);
+    if(!tokens.length)return;
+    /* If geometry over-splits one known word/phrase, merge the smallest gaps
+       until the region count matches the known token count. */
+    while(L.words.length>tokens.length&&L.words.length>1){let bi=0,bg=Infinity;for(let i=0;i<L.words.length-1;i++){const a=L.words[i].b,b=L.words[i+1].b,g=b.x-(a.x+a.w);if(g<bg){bg=g;bi=i}}const a=L.words[bi],b=L.words[bi+1],nw={items:[...(a.items||[]),...(b.items||[])],b:union([a.b,b.b]),text:''};L.words.splice(bi,2,nw)}
+    L.words.forEach((w,wi)=>rebuildWordChars(w,tokens[wi]||w.text||''));L.b=union(L.words.map(w=>w.b));
+  });return seg;
+};
+rederiveSelected=function(){
+  const C=currentSeg();if(!C)return;
+  for(let i=samples().length-1;i>=0;i--){const s=samples()[i];if(['letter_auto','pair_auto','trio_auto'].includes(s.category)&&s.meta?.parentId===C.s.id)samples().splice(i,1)}
+  let letters=0,pairs=0,trios=0;
+  C.seg.lines.forEach(L=>L.words.forEach(w=>{const wc=w.chars||[];
+    wc.forEach((ch,i)=>{const part=strokesInRect(C.seg.rotated,ch);if(part.length&&ch.char){const a=storeSample('letter_auto',ch.char,part,{autoLetter:true,parentId:C.s.id,prev:wc[i-1]?.char||'',next:wc[i+1]?.char||'',weight:.55,segmentationCorrected:true},'word-segmentation');a.meta.weight=.55;letters++}});
+    for(let i=0;i+1<wc.length;i++){const label=(wc[i].char||'')+(wc[i+1].char||''),r=union([wc[i],wc[i+1]]),part=strokesInRect(C.seg.rotated,r);if(label.length===2&&part.length){const q=storeSample('pair_auto',label,part,{parentId:C.s.id,weight:.45,segmentationCorrected:true},'word-segmentation');q.meta.weight=.45;pairs++}}
+    for(let i=0;i+2<wc.length;i++){const label=(wc[i].char||'')+(wc[i+1].char||'')+(wc[i+2].char||''),r=union([wc[i],wc[i+1],wc[i+2]]),part=strokesInRect(C.seg.rotated,r);if(label.length===3&&part.length){const q=storeSample('trio_auto',label,part,{parentId:C.s.id,weight:.40,segmentationCorrected:true},'word-segmentation');q.meta.weight=.40;trios++}}
+  }));labV7MarkTrainingDirty();saveLocal();render();toast(`Rebuilt ${letters} letters · ${pairs} pairs · ${trios} trios from corrected boundaries`)
+};
+
+
+/* ==================== V10 LEAN LAB BRIDGE ==================== */
+async function labV10LoadFast(){
+  /* State and training are already separate records. Do not rerun every legacy
+     merge on every visit. */
+  let state=null,t=null;
+  try{state=await labV6Get(LAB_V6_STATE_KEY)}catch(e){}
+  try{t=await labV6Get(LAB_V6_TRAINING_KEY)}catch(e){}
+  if(state){
+    S={...S,...state,
+      canvas:{...S.canvas,...(state.canvas||{}),active:null},
+      test:{...S.test,...(state.test||{}),active:null},
+      segment:{...S.segment,...(state.segment||{})}
+    };
+  }
+  if(t)S.personalTraining=labV6Merge(labV6EmptyTraining(),t);
+  else{
+    /* One-time fallback for a pre-v6 device. */
+    await loadLocal();
+  }
+  training();
+  return samples().length;
+}
+async function labV10FlushAndNotify(type='medgraph-ink-saved-v11'){
+  await labV7FlushAll();
+  const count=samples().length;
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({type,count,updatedAt:training().updatedAt||Date.now()},location.origin);
+    }
+  }catch(e){}
+  return count;
+}
+labGoMedGraph=async function(){
+  const el=document.getElementById('save-status');if(el)el.textContent='saving…';
+  try{
+    const count=await labV10FlushAndNotify('medgraph-close-ink-v11');
+    if(window.parent===window)location.assign('./index.html');
+    else if(el)el.textContent=`saved · ${count} samples`;
+  }catch(e){
+    console.error(e);if(el)el.textContent='save failed';alert('Could not save Ink Lab:\n'+e.message);
+  }
+};
+window.addEventListener('message',async e=>{
+  if(e.origin!==location.origin)return;
+  if(e.data?.type==='medgraph-request-ink-close-v11')await labGoMedGraph();
+});
+/* The parent only needs a revision/count after a real training flush. */
+const _labV10FlushTraining=labV7FlushTraining;
+labV7FlushTraining=async function(force=false){
+  const n=await _labV10FlushTraining(force);
+  if(force||!LAB_V7_TRAIN_DIRTY){
+    try{
+      if(window.parent&&window.parent!==window)
+        window.parent.postMessage({type:'medgraph-ink-saved-v11',count:samples().length},location.origin);
+    }catch(e){}
+  }
+  return n;
+};
+
+
+/* V11.1: close/background saves write the big corpus only when it changed. */
+async function labV11FlushForClose(){
+  clearTimeout(LAB_V7_STATE_TIMER);
+  if(LAB_V7_TRAIN_DIRTY)await labV7FlushTraining(false);
+  await labV7SaveStateNow();
+  const el=document.getElementById('save-status');
+  if(el)el.textContent=`saved · ${samples().length} samples`;
+  return samples().length;
+}
+labV10FlushAndNotify=async function(type='medgraph-ink-saved-v11'){
+  const count=await labV11FlushForClose();
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({type,count,updatedAt:training().updatedAt||Date.now()},location.origin);
+    }
+  }catch(e){}
+  return count;
+};
+
+(async()=>{
+  try{
+    await labV10LoadFast();
+    render();
+    if(window.parent&&window.parent!==window)
+      window.parent.postMessage({type:'medgraph-ink-ready-v11',count:samples().length},location.origin);
+  }catch(e){
+    console.error(e);
+    document.getElementById('app').innerHTML=`<div class="panel"><h2>Handwriting Lab could not open</h2><div class="notice warn">${esc(e.message||e)}</div><button class="btn" onclick="location.reload()">Reload</button></div>`;
+  }
+})();
 </script>
 <script>
 (function(){
