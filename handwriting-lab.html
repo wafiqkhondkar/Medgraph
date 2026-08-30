@@ -76,7 +76,7 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
 </head>
 <body>
 <header>
-  <div class="brand">Handwriting Lab<small>for MedGraph</small></div><button class="hbtn" onclick="labGoMedGraph()">← MedGraph</button>
+  <div class="brand">Handwriting Lab<small>for MedGraph · v9</small></div><button class="hbtn" onclick="labGoMedGraph()">← MedGraph</button>
   <div class="tabs" id="tabs"></div>
   <div class="hright">
     <span class="status" id="save-status">local</span>
@@ -498,7 +498,12 @@ function initSegCanvas(){
     const key=hit.li+':'+hit.wi,b=segNearestBoundary(hit,q.x);
     const thresholdPx=e.pointerType==='pen'?32:e.pointerType==='touch'?28:18;
     const distPx=b?b.distance*SEG_VIEW.sc:Infinity;
-    if(S.segment.selectedWordKey!==key){S.segment.selectedWordKey=key;S.segment.boundaryIndex=b?.index||0;render();return}
+    if(S.segment.selectedWordKey!==key){
+      S.segment.selectedWordKey=key;S.segment.boundaryIndex=b?.index||0;
+      /* Pencil can grab a divider in one motion; no select-then-drag round trip. */
+      if(b&&e.pointerType==='pen'&&distPx<=thresholdPx){segBeginBoundaryDrag(e,c,hit,b);paintSegmentLive();return}
+      render();return
+    }
     /* Apple Pencil: touching near a divider grabs it immediately. */
     if(b&&distPx<=thresholdPx){segBeginBoundaryDrag(e,c,hit,b);paintSegmentLive();return}
     /* Pencil/touch inside a selected word moves the nearest divider and keeps it grabbed. */
@@ -514,8 +519,8 @@ function initSegCanvas(){
     segDragBoundaryTo(e,c,true);try{if(c.hasPointerCapture?.(e.pointerId))c.releasePointerCapture(e.pointerId)}catch(_){}
     SEG_DRAG=null;render();
   };
-  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',e=>{if(SEG_DRAG?.pointerId===e.pointerId){SEG_DRAG=null;render()}});
-  c.addEventListener('lostpointercapture',e=>{if(SEG_DRAG?.pointerId===e.pointerId){SEG_DRAG=null;render()}});
+  c.addEventListener('pointerup',finish);c.addEventListener('pointercancel',e=>{if(SEG_DRAG?.pointerId===e.pointerId){if(e.cancelable)e.preventDefault();saveLocal();SEG_DRAG=null;render()}});
+  c.addEventListener('lostpointercapture',e=>{if(SEG_DRAG?.pointerId===e.pointerId){saveLocal();SEG_DRAG=null;render()}});
 }
 
 function realStrokesFromSample(s){
@@ -1696,7 +1701,7 @@ const _labV8BuildPackBase=labV7BuildTrainingPack;
 labV7BuildTrainingPack=async function(){
   const pack=await _labV8BuildPackBase();await labV8AttachBackup(pack.training);
   pack.version=8;pack.format='medgraph-handwriting-training-pack';pack.validation=structuredClone(S.validation||[]);pack.labState=structuredClone(labV7ExportState());
-  pack.sampleCount=pack.training.samples?.length||0;pack.categoryCounts=labV7CategoryCounts(pack.training);pack.checksum=await labV7Sha256(JSON.stringify(pack.training));
+  pack.sampleCount=pack.training.samples?.length||0;pack.categoryCounts=labV7CategoryCounts(pack.training);pack.checksum=await labV9TrainingChecksum(pack.training);
   const rt=JSON.parse(JSON.stringify(pack));if((rt.training?.samples?.length||0)!==pack.sampleCount)throw new Error('V8 backup self-check failed');return pack;
 };
 exportMedGraph=async function(){
@@ -1727,6 +1732,95 @@ importFile=async function(f){
     if(labState?.generator)S.gen={...S.gen,...labState.generator,previews:[]};
     labV7MarkTrainingDirty();await labV7FlushAll();LAB_V7_ANALYTICS_CACHE=null;render();toast(`Imported · ${samples().length-before} new · ${samples().length} total + trainer state`);
   }catch(e){alert('Could not import file:\n'+e.message)}
+};
+
+
+/* ==================== V9 STABILITY / PENCIL / BACKUP HARDENING ==================== */
+const LAB_BUILD_V9='9.0-stable';
+const LAB_V9_SIG_CACHE=new WeakMap();
+function labV9Pop32(x){x=x-((x>>>1)&0x55555555);x=(x&0x33333333)+((x>>>2)&0x33333333);return((((x+(x>>>4))&0x0F0F0F0F)*0x01010101)>>>24)}
+function labV9Bits(a){
+  if(!a||typeof a!=='object')return{b:new Uint32Array(18),n:0};
+  let q=LAB_V9_SIG_CACHE.get(a);if(q)return q;
+  const b=new Uint32Array(18);let n=0;for(const v0 of a){const v=v0|0;if(v<0||v>=576)continue;const i=v>>>5,m=1<<(v&31);if(!(b[i]&m)){b[i]|=m;n++}}
+  q={b,n};LAB_V9_SIG_CACHE.set(a,q);return q;
+}
+sigSim=function(a,b){if(!a?.length||!b?.length)return 0;const A=labV9Bits(a),B=labV9Bits(b);let inter=0;for(let i=0;i<18;i++)inter+=labV9Pop32(A.b[i]&B.b[i]);return inter/Math.max(1,A.n+B.n-inter)};
+
+/* Same-ID imports are updates, not automatic drops. This prevents an older copy
+   of a sample from winning just because it was loaded first. Invalid entries are
+   skipped instead of poisoning the recognizer. */
+function labV9ValidSample(s){return!!(s&&typeof s==='object'&&typeof s.category==='string'&&('label'in s)&&Array.isArray(s.sig)&&Array.isArray(s.strokes))}
+function labV9MergeTraining(dst,src){
+  dst=dst||labV6EmptyTraining();src=src||{};dst.samples=Array.isArray(dst.samples)?dst.samples:[];
+  const byId=new Map();dst.samples.forEach((s,i)=>{if(s?.id)byId.set(s.id,i)});
+  let added=0,updated=0,skipped=0;
+  for(const raw of(Array.isArray(src.samples)?src.samples:[])){
+    if(!labV9ValidSample(raw)){skipped++;continue}const s=raw;
+    if(s.id&&byId.has(s.id)){const i=byId.get(s.id),old=dst.samples[i];const oldRich=JSON.stringify(old).length,newRich=JSON.stringify(s).length;if((s.updated||s.created||0)>(old.updated||old.created||0)||newRich>oldRich){dst.samples[i]={...old,...s,meta:{...(old.meta||{}),...(s.meta||{})}};updated++}continue}
+    if(!s.id)s.id='imp_'+Math.random().toString(36).slice(2)+Date.now().toString(36);
+    byId.set(s.id,dst.samples.length);dst.samples.push(s);added++;
+  }
+  for(const k of['arrowPos','arrowNeg','nodePos','nodeNeg']){dst[k]=Array.isArray(dst[k])?dst[k]:[];const have=new Set(dst[k].map(x=>JSON.stringify(x)));for(const x of(Array.isArray(src[k])?src[k]:[])){const q=JSON.stringify(x);if(!have.has(q)){dst[k].push(x);have.add(q)}}}
+  dst.lab={...(src.lab||{}),...(dst.lab||{})};dst.version=9;dst.updatedAt=Date.now();return{dst,added,updated,skipped};
+}
+labV6Merge=function(dst,src){return labV9MergeTraining(dst,src).dst};
+
+/* Build/checksum after *all* trainer state has been attached, then verify the
+   serialized payload rather than only the pre-serialization object. */
+function labV9ChecksumView(T){const x=structuredClone(T||{});if(x.lab?.exportMeta)delete x.lab.exportMeta;return x}
+async function labV9TrainingChecksum(T){return labV7Sha256(JSON.stringify(labV9ChecksumView(T)))}
+const _labV9PackBase=labV7BuildTrainingPack;
+labV7BuildTrainingPack=async function(){
+  const pack=await _labV9PackBase();pack.version=9;pack.format='medgraph-handwriting-training-pack';
+  pack.training.lab=pack.training.lab||{};pack.training.lab.backupV9={version:9,validation:structuredClone(S.validation||[]),labState:structuredClone(labV7ExportState())};
+  pack.validation=structuredClone(S.validation||[]);pack.labState=structuredClone(labV7ExportState());pack.sampleCount=pack.training.samples?.length||0;pack.categoryCounts=labV7CategoryCounts(pack.training);pack.checksum=await labV7Sha256(JSON.stringify(pack.training));
+  const text=JSON.stringify(pack),rt=JSON.parse(text),n=rt?.training?.samples?.length||0,sum=await labV9TrainingChecksum(rt.training);
+  if(n!==pack.sampleCount||sum!==pack.checksum||!rt.training?.lab?.backupV9?.labState)throw new Error(`Backup self-check failed (${n}/${pack.sampleCount})`);return pack;
+};
+exportPack=async function(){try{const p=await labV7BuildTrainingPack();await labV7SaveJson('medgraph_handwriting_training_v9.json',p);toast(`Verified backup · ${p.sampleCount} samples`)}catch(e){alert('Export failed before download:\n'+e.message)}};
+exportMedGraph=async function(){try{const p=await labV7BuildTrainingPack(),Gx=structuredClone(graph()||{defs:[],rels:[],seqs:[]});Gx.whiteboard=Gx.whiteboard||{};Gx.whiteboard.training=structuredClone(p.training);Gx.whiteboard.training.lab={...(Gx.whiteboard.training.lab||{}),exportMeta:{version:9,created:p.created,sampleCount:p.sampleCount,categoryCounts:p.categoryCounts,checksum:p.checksum},backupV9:p.training.lab.backupV9};const text=JSON.stringify(Gx),rt=JSON.parse(text),T=rt?.whiteboard?.training,n=T?.samples?.length||0,sum=await labV9TrainingChecksum(T);if(n!==p.sampleCount||sum!==p.checksum)throw new Error(`Full backup self-check failed (${n}/${p.sampleCount})`);await labV7SaveJson('medgraph_with_handwriting_v9.json',Gx);toast(`Verified full backup · ${n} samples + trainer state`)}catch(e){alert('Export failed before download:\n'+e.message)}};
+
+function labV9ExtractImport(x){
+  if(x?.format==='medgraph-handwriting-training-pack')return{training:x.training,validation:x.validation||x.training?.lab?.backupV9?.validation||x.training?.lab?.backupV8?.validation,labState:x.labState||x.training?.lab?.backupV9?.labState||x.training?.lab?.backupV8?.labState,declared:x.sampleCount,checksum:x.checksum};
+  if(x?.training?.samples)return{training:x.training,validation:x.validation,labState:x.labState,declared:x.sampleCount,checksum:x.checksum};
+  if(Array.isArray(x?.samples))return{training:{samples:x.samples},validation:x.validation,labState:x.labState,declared:x.sampleCount,checksum:x.checksum};
+  const g=x?.graph||x,t=g?.whiteboard?.training;return{graph:g,training:t,validation:t?.lab?.backupV9?.validation||t?.lab?.backupV8?.validation||t?.lab?.validation||x.validation,labState:t?.lab?.backupV9?.labState||t?.lab?.backupV8?.labState,declared:t?.lab?.exportMeta?.sampleCount,checksum:t?.lab?.exportMeta?.checksum};
+}
+importFile=async function(f){if(!f)return;try{const x=JSON.parse(await f.text()),I=labV9ExtractImport(x);if(!I.training&&!I.graph)throw Error('No MedGraph or handwriting training data found');if(I.training){const actual=I.training.samples?.length||0;if(I.declared!=null&&+I.declared!==actual)throw Error(`Backup count mismatch: file says ${I.declared}, contains ${actual}`);if(I.checksum){const sum=await labV9TrainingChecksum(I.training);if(sum!==I.checksum)throw Error('Backup checksum mismatch — file may be incomplete or from a partially written export')}}if(I.graph&&(I.graph.defs||I.graph.rels||I.graph.seqs||I.graph.whiteboard)){S.graph=I.graph;if(S.graph.whiteboard?.training)S.graph.whiteboard.training={...S.graph.whiteboard.training,samples:[]}}const before=samples().length,res=I.training?labV9MergeTraining(training(),I.training):{added:0,updated:0,skipped:0};if(Array.isArray(I.validation))for(const v of I.validation)if(!S.validation.some(z=>z.id===v.id))S.validation.push(v);const L=I.labState||{};if(L.segment?.overrides)S.segment.overrides={...S.segment.overrides,...L.segment.overrides};if(L.guided)S.guided={...S.guided,...L.guided,active:false,queue:[],i:0};if(L.generator||L.gen)S.gen={...S.gen,...(L.generator||L.gen),previews:[]};labV7MarkTrainingDirty();await labV7FlushAll();LAB_V7_ANALYTICS_CACHE=null;render();toast(`Import verified · +${res.added} new · ${res.updated} updated · ${samples().length} total`)}catch(e){alert('Could not import file:\n'+e.message)}};
+
+/* Corrected real-word context should use the corrected segmentation, not the
+   original possibly-wrong sample label. */
+const _rederiveV9Base=rederiveSelected;
+rederiveSelected=function(){return _rederiveV9Base()};
+
+/* Reload the canonical corpus on Safari BFCache restores instead of keeping a
+   stale in-memory copy. */
+window.addEventListener('pageshow',async e=>{if(!e.persisted)return;try{const t=await labV6Get(LAB_V6_TRAINING_KEY);if(t){S.personalTraining=t;LAB_V7_ANALYTICS_CACHE=null}render()}catch(err){console.error(err)}});
+
+
+/* ---------- v9 segmentation cleanup ---------- */
+const _segmentInkV9Base=segmentInk;
+segmentInk=function(strokes,forcedAngle=null,label=''){
+  const seg=_segmentInkV9Base(strokes,forcedAngle,label),labelLines=String(label||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  seg.lines.forEach((L,li)=>{
+    const tokens=(labelLines[li]||'').split(/\s+/).filter(Boolean);
+    if(!tokens.length)return;
+    /* If geometry over-splits one known word/phrase, merge the smallest gaps
+       until the region count matches the known token count. */
+    while(L.words.length>tokens.length&&L.words.length>1){let bi=0,bg=Infinity;for(let i=0;i<L.words.length-1;i++){const a=L.words[i].b,b=L.words[i+1].b,g=b.x-(a.x+a.w);if(g<bg){bg=g;bi=i}}const a=L.words[bi],b=L.words[bi+1],nw={items:[...(a.items||[]),...(b.items||[])],b:union([a.b,b.b]),text:''};L.words.splice(bi,2,nw)}
+    L.words.forEach((w,wi)=>rebuildWordChars(w,tokens[wi]||w.text||''));L.b=union(L.words.map(w=>w.b));
+  });return seg;
+};
+rederiveSelected=function(){
+  const C=currentSeg();if(!C)return;
+  for(let i=samples().length-1;i>=0;i--){const s=samples()[i];if(['letter_auto','pair_auto','trio_auto'].includes(s.category)&&s.meta?.parentId===C.s.id)samples().splice(i,1)}
+  let letters=0,pairs=0,trios=0;
+  C.seg.lines.forEach(L=>L.words.forEach(w=>{const wc=w.chars||[];
+    wc.forEach((ch,i)=>{const part=strokesInRect(C.seg.rotated,ch);if(part.length&&ch.char){const a=storeSample('letter_auto',ch.char,part,{autoLetter:true,parentId:C.s.id,prev:wc[i-1]?.char||'',next:wc[i+1]?.char||'',weight:.55,segmentationCorrected:true},'word-segmentation');a.meta.weight=.55;letters++}});
+    for(let i=0;i+1<wc.length;i++){const label=(wc[i].char||'')+(wc[i+1].char||''),r=union([wc[i],wc[i+1]]),part=strokesInRect(C.seg.rotated,r);if(label.length===2&&part.length){const q=storeSample('pair_auto',label,part,{parentId:C.s.id,weight:.45,segmentationCorrected:true},'word-segmentation');q.meta.weight=.45;pairs++}}
+    for(let i=0;i+2<wc.length;i++){const label=(wc[i].char||'')+(wc[i+1].char||'')+(wc[i+2].char||''),r=union([wc[i],wc[i+1],wc[i+2]]),part=strokesInRect(C.seg.rotated,r);if(label.length===3&&part.length){const q=storeSample('trio_auto',label,part,{parentId:C.s.id,weight:.40,segmentationCorrected:true},'word-segmentation');q.meta.weight=.40;trios++}}
+  }));labV7MarkTrainingDirty();saveLocal();render();toast(`Rebuilt ${letters} letters · ${pairs} pairs · ${trios} trios from corrected boundaries`)
 };
 
 (async()=>{try{await loadLocal();training();await labInitShared();render()}catch(e){console.error(e);document.getElementById('app').innerHTML=`<div class="panel"><h2>Handwriting Lab could not open</h2><div class="notice warn">${esc(e.message||e)}</div><button class="btn" onclick="location.reload()">Reload</button></div>`}})();

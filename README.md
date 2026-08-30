@@ -76,3 +76,15 @@ When moving from Ink Lab back to MedGraph, the Lab awaits the IndexedDB write be
 - Import restores that embedded trainer state into IndexedDB for the next Ink Lab launch.
 
 - Final audit also keeps dots/crossbars attached to their body line during multi-line phrase grouping, recomputes the full-backup checksum after trainer state is embedded, and normalizes restored generator state when importing from the main whiteboard.
+
+
+## v9 stabilization
+- Build badge is visible in both MedGraph and Handwriting Lab so stale caches are obvious.
+- Main → Ink Lab now waits for graph + handwriting persistence before navigating; Ink Lab → Main already waits for its flush.
+- Safari BFCache restores resync the canonical handwriting model.
+- Recognition similarity uses cached 576-bit signatures rather than rebuilding JavaScript Sets for every prototype comparison.
+- Word-length estimation calibrates from the user's real whole-word samples when available.
+- Auto clustering no longer uses creation-time gaps, so late i-dots/t-crossbars do not cut the word in half.
+- Phrase splitting is more conservative to avoid turning one long word into multiple 2–3 letter words.
+- Apple Pencil boundary edits are persisted even on pointercancel/lost capture.
+- v9 imports verify declared sample counts/checksums when present; v9 exports serialize, parse, recount, and re-checksum before saving.
