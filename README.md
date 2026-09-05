@@ -112,3 +112,45 @@ This is a structural cleanup, not another recognition patch.
 - Ink Lab closes through a save → postMessage → close handshake; the parent does not navigate away.
 - The parent replaces its canonical in-memory handwriting model from IndexedDB after Ink Lab closes instead of accumulating stale copies.
 - The service worker no longer pre-caches the heavy Whiteboard or Ink Lab JavaScript during installation; each is cached after first use.
+
+## v12 — personal stroke-sequence recognizer
+The primary personal recognizer now uses stroke-sequence features instead of 24×24 raster overlap.
+
+- isolated letters: DTW kNN against personal stroke sequences
+- words: joint character-boundary + character-identity Viterbi decoding
+- pair/trio samples: context bonuses
+- whole words: personal memory only
+- no MedGraph vocabulary substitution in the raw result
+- new samples preserve pressure and within-stroke timing
+- Ink Lab and Whiteboard share the same `stroke-sequence.js`
+- Test reports exact word accuracy and character error rate (CER)
+
+This is a working personal sequence model that can use the existing dataset immediately. A true neural CTC base still requires large generic pretrained weights; v12 does not pretend the personal sample count is enough to train that base network from scratch.
+
+## v12.1 — Prodrome fields
+- Disease class now includes `prodrome:`.
+- Virus class now includes `prodrome:`.
+- New canonical clinical relation: `has_prodrome`.
+- Supported wording includes `has a prodrome of`, `has prodromal symptoms of`, `is a prodrome of`, `is a prodromal symptom of`, and `occurs in the prodrome of`.
+- `is a prodrome of` and similar inverse wording automatically flips the edge into the canonical disease/virus → prodrome direction.
+
+## v12.2 — relationship parser expansion
+
+New parser structures:
+- `X activates Y causes Z` → `X activates Y` + `Y causes Z`
+- `beta sheets of proteins are antiparallel` → `beta sheets of proteins` is decomposed into:
+  - `beta sheets -of-> proteins`
+  - `beta sheets -has_property-> antiparallel`
+- `cell death occurs slowly` → `cell death -has_manner-> slowly`, while preserving `occurs` as the written wording.
+- bare `if` is now a `context_dependent` condition marker. `only if` remains the stricter `only_if` condition.
+- a large curated medical/science verb set was added for mechanisms, molecular biology, clinical medicine, microbiology, pharmacology, anatomy, signaling, transport, and quantitative change.
+
+## v12.3 — possibility conditions + lexical verb presentation
+
+- `can`, `could`, `may`, `might`, `is able to`, and `are able to` now create a `possible` condition, meaning the relationship is an option/possibility rather than a guaranteed assertion.
+- The modal condition is attached before list/purpose expansion, so `X may cause A and B` keeps the possibility marker on every expanded fact.
+- Graph semantics still use canonical relation keys for grouping/inference, but notes/cards now present the verb the user actually wrote.
+- Example: `X exports Y` remains semantically in the transport family but is shown as `export`, not flattened to `transport`.
+- Example: `X transmits Y` is shown as `transmit`; `X pumps Y` is shown as `pump`.
+- The original parsed verb surface is preserved even for reversed/passive parses.
+- Serialized notes include both the lexical verb and a separate `semantic relation:` line so human wording and machine semantics are both retained.

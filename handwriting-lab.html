@@ -73,10 +73,11 @@ footer{font-size:11px;color:var(--muted);text-align:center;padding:20px}
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MedGraph Lab">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<script src="./stroke-sequence.js?v=12"></script>
 </head>
 <body>
 <header>
-  <div class="brand">Handwriting Lab<small>for MedGraph · v11</small></div><button class="hbtn" onclick="labGoMedGraph()">← Back to MedGraph</button>
+  <div class="brand">Handwriting Lab<small>for MedGraph · v12</small></div><button class="hbtn" onclick="labGoMedGraph()">← Back to MedGraph</button>
   <div class="tabs" id="tabs"></div>
   <div class="hright">
     <span class="status" id="save-status">local</span>
@@ -241,7 +242,9 @@ function strokeLen(st){let n=0,p=st.pts||[];for(let i=1;i<p.length;i++)n+=Math.h
 function normalizeStrokes(strokes){
   if(!strokes?.length)return[];
   const b=union(strokes.map(sb)),den=Math.max(1,b.w,b.h);
-  return strokes.map(st=>({pts:(st.pts||[]).map(p=>[+( (p.x-b.x)/den).toFixed(4),+( (p.y-b.y)/den).toFixed(4),+(p.p??.5).toFixed(3)])}))
+  return strokes.map(st=>{const t0=(st.pts||[])[0]?.t||0;return{pts:(st.pts||[]).map(p=>[
+    +((p.x-b.x)/den).toFixed(4),+((p.y-b.y)/den).toFixed(4),+(p.p??.5).toFixed(3),+Math.max(0,(p.t||t0)-t0).toFixed(1)
+  ])}})
 }
 function denormalize(compact,x=0,y=0,scale=100,rot=0,sx=1,sy=1,jitter=0){
   const cs=Math.cos(rot),sn=Math.sin(rot),out=[];
@@ -536,12 +539,12 @@ function drawStroke(ctx,st,transform=null,color='#12171c',width=2.2){
 function worldPoint(e,c){
   const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;
   const vx=(e.clientX-r.left)*sx,vy=(e.clientY-r.top)*sy;
-  return{x:(vx-S.canvas.panX)/S.canvas.zoom,y:(vy-S.canvas.panY)/S.canvas.zoom,p:e.pressure>0?e.pressure:.5}
+  return{x:(vx-S.canvas.panX)/S.canvas.zoom,y:(vy-S.canvas.panY)/S.canvas.zoom,p:e.pressure>0?e.pressure:.5,t:performance.now()}
 }
 function initInkCanvas(id='ink-canvas'){
   const c=document.getElementById(id);if(!c||c._init)return;c._init=true;
   const state=id==='test-canvas'?S.test:S.canvas;
-  const point=(e)=>{const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy,p:e.pressure>0?e.pressure:.5}};
+  const point=(e)=>{const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height;return{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy,p:e.pressure>0?e.pressure:.5,t:performance.now()}};
   let panStart=null;
   c.addEventListener('pointerdown',e=>{
     if(e.cancelable)e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}
@@ -1901,6 +1904,578 @@ labV10FlushAndNotify=async function(type='medgraph-ink-saved-v11'){
     }
   }catch(e){}
   return count;
+};
+
+
+/* ==================== V11.4 CALIBRATED RECOGNITION ====================
+   Why this exists:
+   - The old "letter confidence" was not a true held-out confidence measure.
+     It allowed inferred/synthetic prototypes to help classify direct samples,
+     so it could report 80%+ while real word recognition was poor.
+   - The old Test tab used equal-width word slicing and aggressively mapped
+     raw spellings to MedGraph vocabulary. That could return unrelated words.
+
+   v11.4:
+   - strict letter CV = DIRECT REAL LETTERS ONLY;
+   - no confidence percentage when there are too few samples;
+   - word Test defaults to RAW OPEN SPELLING with no vocabulary correction;
+   - character-count estimation + low-ink-density segmentation;
+   - letters/pairs/trios all use a composite kNN score;
+   - low-quality output is labeled low confidence rather than pretending it is right.
+======================================================================= */
+
+let LAB114_DESC_CACHE=new Map();
+let LAB114_INDEX_CACHE=null;
+let LAB114_INDEX_STAMP='';
+let LAB114_WORD_METRICS_CACHE=null;
+
+function lab114Stamp(){
+  const T=samples(),last=T[T.length-1];
+  return `${T.length}|${last?.id||''}|${last?.created||0}`;
+}
+function lab114ResetCaches(){
+  LAB114_DESC_CACHE.clear();
+  LAB114_INDEX_CACHE=null;
+  LAB114_INDEX_STAMP='';
+  LAB114_WORD_METRICS_CACHE=null;
+  LAB_V7_ANALYTICS_CACHE=null;
+}
+const _lab114StoreSample=storeSample;
+storeSample=function(category,label,strokes,meta={},source='lab-real'){
+  const s=_lab114StoreSample(category,label,strokes,meta,source);
+  lab114ResetCaches();
+  return s;
+};
+const _lab114MergeTrainingPack=mergeTrainingPack;
+mergeTrainingPack=function(x){
+  const n=_lab114MergeTrainingPack(x);
+  lab114ResetCaches();
+  return n;
+};
+
+function lab114SamplePoints(s){
+  const pts=[];
+  for(const st of(s?.strokes||[])){
+    for(const q of(st.pts||[])){
+      const x=Array.isArray(q)?+q[0]:+q.x, y=Array.isArray(q)?+q[1]:+q.y;
+      if(Number.isFinite(x)&&Number.isFinite(y))pts.push({x,y});
+    }
+  }
+  return pts;
+}
+function lab114DescriptorFromCompact(s){
+  const key=s?.id||JSON.stringify([s?.category,s?.label,s?.created]).slice(0,120);
+  if(LAB114_DESC_CACHE.has(key))return LAB114_DESC_CACHE.get(key);
+  const pts=lab114SamplePoints(s);
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(const p of pts){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)}
+  const aspect=pts.length?(x1-x0)/Math.max(.02,y1-y0):1;
+  const dir=Array(8).fill(0);let total=0;
+  for(const st of(s?.strokes||[])){
+    const a=st.pts||[];
+    for(let i=1;i<a.length;i++){
+      const p0=a[i-1],p1=a[i],xA=Array.isArray(p0)?+p0[0]:+p0.x,yA=Array.isArray(p0)?+p0[1]:+p0.y,
+            xB=Array.isArray(p1)?+p1[0]:+p1.x,yB=Array.isArray(p1)?+p1[1]:+p1.y;
+      const dx=xB-xA,dy=yB-yA,l=Math.hypot(dx,dy);if(l<.001)continue;
+      let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI*2;
+      dir[Math.floor(ang/(Math.PI/4))%8]+=l;total+=l;
+    }
+  }
+  if(total)for(let i=0;i<8;i++)dir[i]/=total;
+  const d={sig:s?.sig||[],aspect,strokeCount:(s?.strokes||[]).length||1,dir};
+  LAB114_DESC_CACHE.set(key,d);return d;
+}
+function lab114DescriptorFromStrokes(strokes){
+  const b=union(strokes.map(sb)),aspect=b.w/Math.max(1,b.h),dir=dirHist(strokes);
+  return{sig:signature(strokes),aspect,strokeCount:strokes.length||1,dir};
+}
+function lab114GeomSim(a,b){
+  const pix=sigSim(a.sig,b.sig);
+  const asp=Math.exp(-1.25*Math.abs(Math.log((a.aspect+.04)/(b.aspect+.04))));
+  const sc=Math.exp(-Math.abs(a.strokeCount-b.strokeCount)/2.3);
+  let l1=0;for(let i=0;i<8;i++)l1+=Math.abs((a.dir?.[i]||0)-(b.dir?.[i]||0));
+  const dh=Math.max(0,1-l1/2);
+  return .60*pix+.18*asp+.10*sc+.12*dh;
+}
+function lab114Weight(s){
+  if(isSyntheticSample(s))return Math.min(.12,sampleWeight(s));
+  if(s.category==='letter_auto')return .55;
+  if(s.category==='pair_auto')return .45;
+  if(s.category==='trio_auto')return .40;
+  return Math.max(.7,Math.min(1,sampleWeight(s)));
+}
+function lab114CatsForN(n){
+  return n===1
+    ? new Set(['letter','letter_auto','letter_synthetic_context'])
+    : n===2
+      ? new Set(['letter_pair','pair_auto','pair_synthetic_context'])
+      : new Set(['letter_trio','trio_auto','trio_synthetic_context']);
+}
+function lab114Index(){
+  const stamp=lab114Stamp();
+  if(LAB114_INDEX_CACHE&&LAB114_INDEX_STAMP===stamp)return LAB114_INDEX_CACHE;
+  const idx={1:new Map(),2:new Map(),3:new Map()};
+  for(const s of samples()){
+    const label=String(s.label||'').trim().toLowerCase();
+    const n=[...label].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n<1||n>3||!lab114CatsForN(n).has(s.category)||!s.sig?.length)continue;
+    if(!idx[n].has(label))idx[n].set(label,[]);
+    idx[n].get(label).push(s);
+  }
+  for(const n of[1,2,3])for(const [label,a]of idx[n]){
+    a.sort((x,y)=>lab114Weight(y)-lab114Weight(x)||(y.created||0)-(x.created||0));
+    idx[n].set(label,a.slice(0,14));
+  }
+  LAB114_INDEX_CACHE=idx;LAB114_INDEX_STAMP=stamp;return idx;
+}
+function lab114Aggregate(vals){
+  vals=vals.filter(Number.isFinite).sort((a,b)=>b-a).slice(0,3);
+  if(!vals.length)return 0;
+  if(vals.length===1)return vals[0]*.88;
+  if(vals.length===2)return vals[0]*.68+vals[1]*.32;
+  return vals[0]*.58+vals[1]*.27+vals[2]*.15;
+}
+function lab114ClassifyDesc(qd,n,limit=5,opts={}){
+  const out=[],idx=lab114Index()[n];
+  for(const [label,arr]of idx){
+    const vals=[];
+    for(const s of arr){
+      if(opts.excludeId&&s.id===opts.excludeId)continue;
+      if(opts.directOnly&&(s.category!==(n===1?'letter':n===2?'letter_pair':'letter_trio')||isSyntheticSample(s)))continue;
+      vals.push(lab114GeomSim(qd,lab114DescriptorFromCompact(s))*lab114Weight(s));
+    }
+    const score=lab114Aggregate(vals);
+    if(score>0)out.push({label,score,count:vals.length,source:n===1?'personal letters':n===2?'personal pairs':'personal trios'});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,limit);
+}
+function lab114Classify(strokes,n,limit=5,opts={}){
+  if(!strokes?.length)return[];
+  return lab114ClassifyDesc(lab114DescriptorFromStrokes(strokes),n,limit,opts);
+}
+function lab114SpecificChunkScore(strokes,n,label){
+  const arr=lab114Index()[n].get(String(label||'').toLowerCase())||[];
+  if(!arr.length||!strokes?.length)return 0;
+  const qd=lab114DescriptorFromStrokes(strokes),vals=[];
+  for(const s of arr)vals.push(lab114GeomSim(qd,lab114DescriptorFromCompact(s))*lab114Weight(s));
+  return lab114Aggregate(vals);
+}
+
+/* Strict DIRECT-REAL leave-one-out CV. No inferred/synthetic rescue. */
+function letterModelReport(){
+  const alphabet=[...'abcdefghijklmnopqrstuvwxyz'];
+  const direct=samples().filter(s=>s.category==='letter'&&!isSyntheticSample(s)&&/^[a-z]$/i.test(String(s.label||'')));
+  const by=new Map(alphabet.map(ch=>[ch,[]]));
+  direct.forEach(s=>by.get(String(s.label).toLowerCase())?.push(s));
+
+  const report=alphabet.map(ch=>{
+    const tests=by.get(ch),rows=[];let top1=0,top3=0,confusions={};
+    for(const t of tests){
+      const qd=lab114DescriptorFromCompact(t),scores=[];
+      for(const other of alphabet){
+        const vals=[];
+        for(const p of by.get(other)){
+          if(p.id===t.id)continue;
+          vals.push(lab114GeomSim(qd,lab114DescriptorFromCompact(p)));
+        }
+        const score=lab114Aggregate(vals);
+        if(score>0)scores.push({label:other,score});
+      }
+      scores.sort((a,b)=>b.score-a.score);
+      const rank=scores.findIndex(x=>x.label===ch);
+      if(rank===0)top1++;
+      if(rank>=0&&rank<3)top3++;
+      if(rank!==0&&scores[0]?.label)confusions[scores[0].label]=(confusions[scores[0].label]||0)+1;
+      rows.push({truth:ch,top:scores[0]?.label||'',rank,score:scores[0]?.score||0});
+    }
+    const n=tests.length,confusion=Object.entries(confusions).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+    return{
+      ch,count:n,
+      accuracy:n?top1/n:null,
+      top3:n?top3/n:null,
+      confusion,
+      reliable:n>=5,
+      sufficient:n>=3,
+      rows
+    };
+  });
+
+  const evaluable=report.filter(x=>x.count>=2),total=evaluable.reduce((a,x)=>a+x.count,0);
+  const overall=total?evaluable.reduce((a,x)=>a+(x.accuracy||0)*x.count,0)/total:null;
+  report.overall=overall;
+  report.covered5=report.filter(x=>x.count>=5).length;
+  report.directCount=direct.length;
+  return report;
+}
+weakestLetters=function(limit=10){
+  return [...letterModelReport()]
+    .sort((a,b)=>{
+      const aa=a.accuracy==null?-1:a.accuracy,bb=b.accuracy==null?-1:b.accuracy;
+      return aa-bb||a.count-b.count;
+    }).slice(0,limit);
+};
+coverage=function(){
+  const report=letterModelReport(),real=samples().filter(s=>s.category==='letter'&&!isSyntheticSample(s)),
+    auto=samples().filter(s=>s.category==='letter_auto'),syn=samples().filter(isSyntheticSample);
+  return{chars:report.map(r=>({ch:r.ch,r:r.count,a:auto.filter(s=>String(s.label).toLowerCase()===r.ch).length,
+    score:r.accuracy==null?0:r.accuracy*10,confidence:r.accuracy,accuracy:r.accuracy,confusion:r.confusion})),
+    real:real.length,auto:auto.length,syn:syn.length,report};
+};
+
+/* Word-length calibration from REAL whole words, not generated words. */
+function lab114WordMetrics(){
+  const stamp=lab114Stamp();
+  if(LAB114_WORD_METRICS_CACHE?.stamp===stamp)return LAB114_WORD_METRICS_CACHE;
+  const pitches=[];
+  for(const s of samples()){
+    if(isSyntheticSample(s)||!['word','node','relationship_label','sequence_step'].includes(s.category))continue;
+    const letters=[...String(s.label||'')].filter(ch=>/\p{L}|\d/u.test(ch));
+    if(letters.length<3||letters.length>30)continue;
+    const d=lab114DescriptorFromCompact(s),p=d.aspect/letters.length;
+    if(p>.08&&p<1.2)pitches.push(p);
+  }
+  pitches.sort((a,b)=>a-b);
+  LAB114_WORD_METRICS_CACHE={stamp,pitch:pitches.length?pitches[Math.floor(pitches.length/2)]:.47,n:pitches.length};
+  return LAB114_WORD_METRICS_CACHE;
+}
+function lab114CandidateLengths(strokes){
+  const b=union(strokes.map(sb)),aspect=b.w/Math.max(1,b.h),M=lab114WordMetrics();
+  const est=Math.max(1,Math.min(32,aspect/Math.max(.12,M.pitch)));
+  const center=Math.round(est),set=new Set();
+  for(const d of[0,-1,1,-2,2]){const n=center+d;if(n>=1&&n<=32)set.add(n)}
+  if(center<=2)set.add(3);
+  return{est,vals:[...set].sort((a,b)=>Math.abs(a-est)-Math.abs(b-est)),calibrationWords:M.n};
+}
+function lab114DensityParts(strokes,n){
+  if(n<=1)return[strokes];
+  const b=union(strokes.map(sb));if(!b.w)return[];
+  const bins=Math.max(120,Math.min(420,Math.round(b.w))),d=Array(bins).fill(0);
+  for(const st of strokes)for(const p of(st.pts||[])){
+    const k=Math.max(0,Math.min(bins-1,Math.round((p.x-b.x)/b.w*(bins-1))));d[k]++;
+  }
+  const sm=d.map((_,i)=>{
+    let s=0,w=0;for(let j=-3;j<=3;j++){const k=i+j;if(k>=0&&k<bins){const q=4-Math.abs(j);s+=d[k]*q;w+=q}}
+    return s/Math.max(1,w);
+  });
+  const cuts=[b.x];
+  for(let i=1;i<n;i++){
+    const target=i/n*(bins-1),radius=Math.max(3,Math.round(bins/n*.38));
+    let best=Math.round(target),bestScore=Infinity;
+    for(let k=Math.max(2,Math.round(target-radius));k<=Math.min(bins-3,Math.round(target+radius));k++){
+      const score=sm[k]+.16*Math.abs(k-target)/Math.max(1,radius);
+      if(score<bestScore){bestScore=score;best=k}
+    }
+    let x=b.x+b.w*best/(bins-1),minSep=b.w/n*.34;
+    x=Math.max(cuts[cuts.length-1]+minSep,x);
+    cuts.push(Math.min(b.x+b.w-minSep*(n-i),x));
+  }
+  cuts.push(b.x+b.w);
+
+  const parts=[];
+  for(let i=0;i<n;i++){
+    const x0=cuts[i],x1=cuts[i+1],part=[];
+    for(const st of strokes){
+      const src=st.pts||[],pieces=[];let run=[];
+      for(const p of src){
+        if(p.x>=x0-2&&p.x<=x1+2)run.push(p);
+        else if(run.length){if(run.length>1)pieces.push(run);run=[]}
+      }
+      if(run.length>1)pieces.push(run);
+      for(const pts of pieces)part.push({id:uid('seg'),pts,b:boundsPts(pts)});
+    }
+    parts.push(part);
+  }
+  return parts;
+}
+function lab114UnionParts(parts,a,b){
+  const out=[];for(let i=a;i<b;i++)out.push(...(parts[i]||[]));return out;
+}
+function lab114DecodeParts(parts,n,est){
+  if(parts.length!==n||parts.some(p=>!p.length))return[];
+  const letters=parts.map(p=>lab114Classify(p,1,4));
+  if(letters.some(a=>!a.length))return[];
+
+  let beam=[{text:'',log:0,minScore:1,avgScore:0,steps:0,trace:[]}];
+  for(let i=0;i<n;i++){
+    const next=[];
+    for(const b of beam)for(const c of letters[i]){
+      let bonus=0;
+      if(i>=1){
+        const pair=(b.text.slice(-1)+c.label).toLowerCase();
+        bonus+=lab114SpecificChunkScore(lab114UnionParts(parts,i-1,i+1),2,pair)*.20;
+      }
+      if(i>=2){
+        const trio=(b.text.slice(-2)+c.label).toLowerCase();
+        bonus+=lab114SpecificChunkScore(lab114UnionParts(parts,i-2,i+1),3,trio)*.14;
+      }
+      const sc=Math.max(.01,c.score);
+      next.push({
+        text:b.text+c.label,
+        log:b.log+Math.log(sc)+bonus,
+        minScore:Math.min(b.minScore,sc),
+        avgScore:b.avgScore+sc,
+        steps:b.steps+1,
+        trace:[...b.trace,{label:c.label,score:c.score}]
+      });
+    }
+    next.sort((a,b)=>b.log-a.log);beam=next.slice(0,28);
+  }
+  const prior=Math.exp(-Math.abs(n-est)/Math.max(2,est*.6)),seen=new Set(),out=[];
+  for(const b of beam){
+    const k=canon(b.text);if(!k||seen.has(k))continue;seen.add(k);
+    const avg=b.avgScore/Math.max(1,b.steps);
+    const score=Math.exp(b.log/n)*(.78+.22*prior);
+    out.push({
+      label:b.text,score,avgChar:avg,minChar:b.minScore,
+      quality:avg>=.43&&b.minScore>=.20?'good':avg>=.30?'low':'very-low',
+      source:`raw personal spelling · ${n} chars`,
+      trace:b.trace
+    });
+    if(out.length>=5)break;
+  }
+  return out;
+}
+function lab114WholeWordMatches(strokes){
+  const qd=lab114DescriptorFromStrokes(strokes),out=[];
+  for(const s of samples()){
+    if(isSyntheticSample(s)||!['word','node','relationship_label','sequence_step'].includes(s.category)||!s.label||!s.sig?.length)continue;
+    const score=lab114GeomSim(qd,lab114DescriptorFromCompact(s));
+    if(score>=.48)out.push({label:s.label,score:score*.90,avgChar:score,minChar:score,quality:score>=.62?'good':'low',source:'personal whole-word memory',trace:[]});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,5);
+}
+function lab114RecognizeSingleWord(strokes){
+  const L=lab114CandidateLengths(strokes),all=[];
+  for(const n of L.vals)all.push(...lab114DecodeParts(lab114DensityParts(strokes,n),n,L.est));
+  all.push(...lab114WholeWordMatches(strokes));
+  const seen=new Map();
+  for(const x of all){const k=canon(x.label);if(!k)continue;const old=seen.get(k);if(!old||x.score>old.score)seen.set(k,x)}
+  const raw=[...seen.values()].sort((a,b)=>b.score-a.score).slice(0,8);
+  return{raw,lengthModel:L};
+}
+function lab114WordGroups(strokes){
+  const seg=segmentInk(strokes),groups=[];
+  for(const L of seg.lines)for(const w of L.words){
+    const g=(w.items||[]).map(x=>x.st).filter(Boolean);
+    if(g.length)groups.push(g);
+  }
+  return groups.length?groups:[strokes];
+}
+function lab114VocabularySuggestions(raw,limit=5){
+  const V=vocab(),out=[];
+  for(const r of raw.slice(0,3)){
+    const cr=canon(r.label);if(!cr)continue;
+    for(const v of V){
+      const cv=canon(v);if(!cv||Math.abs(cv.length-cr.length)>3)continue;
+      const d=editDistance(cr,cv),sim=1-d/Math.max(cr.length,cv.length,1);
+      /* A MUCH stricter threshold, and still secondary-only. */
+      if(sim>=.72)out.push({label:v,score:sim,source:'optional MedGraph vocabulary'});
+    }
+  }
+  out.sort((a,b)=>b.score-a.score);const seen=new Set();
+  return out.filter(x=>{const k=canon(x.label);if(seen.has(k))return false;seen.add(k);return true}).slice(0,limit);
+}
+function lab114RecognizeText(strokes,{useVocab=false}={}){
+  const groups=lab114WordGroups(strokes),per=groups.map(lab114RecognizeSingleWord);
+  let raw=[];
+  if(per.length===1)raw=per[0].raw;
+  else if(per.every(x=>x.raw.length)){
+    const first=per.map(x=>x.raw[0].label).join(' ');
+    raw.push({
+      label:first,
+      score:per.reduce((s,x)=>s+x.raw[0].score,0)/per.length,
+      avgChar:per.reduce((s,x)=>s+x.raw[0].avgChar,0)/per.length,
+      minChar:Math.min(...per.map(x=>x.raw[0].minChar)),
+      quality:per.every(x=>x.raw[0].quality==='good')?'good':'low',
+      source:`raw personal phrase · ${per.length} words`,
+      trace:per.flatMap(x=>x.raw[0].trace||[])
+    });
+    for(let i=0;i<per.length&&raw.length<6;i++){
+      for(const alt of per[i].raw.slice(1,3)){
+        const words=per.map((x,j)=>j===i?alt.label:x.raw[0].label);
+        raw.push({...alt,label:words.join(' '),source:'raw personal phrase alternative'});
+      }
+    }
+  }
+  const known=useVocab?lab114VocabularySuggestions(raw):[];
+  return{
+    raw,
+    known,
+    groups:groups.length,
+    estimatedCharacters:per.map(x=>x.lengthModel?.est||0),
+    calibrationWords:lab114WordMetrics().n
+  };
+}
+
+/* Preserve compatibility for anything still calling recognizeWord(), but no
+   automatic vocabulary correction. */
+recognizeWord=function(strokes,allowSynthetic=true){
+  return lab114RecognizeText(strokes,{useVocab:false}).raw;
+};
+
+/* -------- Test tab: same raw personal model, vocabulary OFF by default -------- */
+runTest=async function(){
+  if(!S.test.strokes.length)return toast('Write something in the test pad');
+  S.test.running=true;render();
+  await new Promise(r=>setTimeout(r,20));
+  const result=lab114RecognizeText(S.test.strokes,{useVocab:!!S.test.useVocab});
+  S.test.result=result;S.test.running=false;render();
+};
+evaluate=function(){
+  const v=training().lab?.v114Validation;
+  if(!v)return null;
+  return{acc:v.accuracy,rows:v.rows||[]};
+};
+async function lab114RunValidation(){
+  if(!S.validation.length)return toast('Save held-out validation examples first');
+  const rows=[];let right=0;
+  for(let i=0;i<S.validation.length;i++){
+    const v=S.validation[i],r=lab114RecognizeText(valStrokes(v),{useVocab:false}),
+          guess=r.raw[0]?.label||'',ok=canon(guess)===canon(v.label);
+    if(ok)right++;
+    rows.push({truth:v.label,guess,ok,quality:r.raw[0]?.quality||'none'});
+    if(i%4===3)await new Promise(q=>setTimeout(q,0));
+  }
+  training().lab=training().lab||{};
+  training().lab.v114Validation={at:Date.now(),accuracy:right/S.validation.length,count:S.validation.length,rows};
+  labV7MarkTrainingDirty();await labV7FlushTraining();render();
+}
+testHTML=function(){
+  const r=S.test.result,truth=String(S.test.truth||'').trim(),v=training().lab?.v114Validation;
+  const top=r?.raw?.[0],ed=truth&&top?editDistance(canon(truth),canon(top.label)):null;
+  return `<div class="grid2">
+    <div class="panel">
+      <div class="ph"><h2>Recognition test bench</h2><span class="hint">raw personal spelling; no hidden vocabulary correction</span></div>
+      <div class="canvaswrap"><canvas class="ink" id="test-canvas" width="900" height="360"></canvas></div>
+      <div class="fld" style="margin-top:8px"><label class="eyebrow">True text (optional — diagnostics only)</label>
+        <input id="test-truth" value="${esc(S.test.truth||'')}" oninput="S.test.truth=this.value" placeholder="adaptive immunity"></div>
+      <label class="hint" style="display:flex;align-items:center;gap:7px;margin:8px 0">
+        <input type="checkbox" ${S.test.useVocab?'checked':''} onchange="S.test.useVocab=this.checked;saveLocal()"> Show MedGraph vocabulary suggestions separately
+      </label>
+      <div class="actions">
+        <button class="btn" onclick="runTest()" ${S.test.running?'disabled':''}>${S.test.running?'Recognizing…':'Recognize raw writing'}</button>
+        <button class="mini" onclick="addValidationFromCanvas()">Save as held-out validation</button>
+        <button class="mini danger" onclick="clearTest()">Clear</button>
+      </div>
+      ${r?`
+        <div class="notice" style="margin-top:10px">
+          <b>Raw open-spelling guesses</b>
+          <ol>${(r.raw||[]).map(g=>`<li><b>${esc(g.label)}</b> <span class="hint">· match ${Math.round((g.score||0)*100)} · ${esc(g.quality||'')} · ${esc(g.source||'')}</span></li>`).join('')||'<li>No usable raw spelling — add/correct training rather than trusting a random guess.</li>'}</ol>
+          ${top?.trace?.length?`<div class="hint"><b>Top path:</b> ${top.trace.map(x=>`${esc(x.label)}(${Math.round((x.score||0)*100)})`).join(' · ')}</div>`:''}
+          <div class="hint">Estimated characters: ${(r.estimatedCharacters||[]).map(x=>x.toFixed(1)).join(' / ')||'—'} · real whole-word calibration samples: ${r.calibrationWords||0}</div>
+          ${ed!=null?`<div class="hint">Against entered truth: ${ed} edit${ed===1?'':'s'} away. The truth text was NOT used to generate the guess.</div>`:''}
+        </div>
+        ${S.test.useVocab?`<div class="notice" style="margin-top:8px"><b>Optional known-term suggestions</b><ol>${(r.known||[]).map(g=>`<li>${esc(g.label)} <span class="hint">· similarity ${Math.round((g.score||0)*100)}</span></li>`).join('')||'<li>No close known terms.</li>'}</ol></div>`:''}
+      `:''}
+    </div>
+    <div>
+      <div class="panel">
+        <div class="ph"><h3>Held-out word validation</h3></div>
+        ${v?`<div class="metric"><b>${Math.round(v.accuracy*100)}%</b><span>exact raw-word accuracy · ${v.count} samples</span></div><div class="hint">Last run ${new Date(v.at).toLocaleString()}</div>`:
+          '<div class="notice warn">Not measured yet. Letter CV does not tell you word accuracy.</div>'}
+        <button class="mini" onclick="lab114RunValidation()" style="margin-top:8px">Run held-out word validation</button>
+      </div>
+      <div class="panel">
+        <div class="ph"><h3>Validation set</h3></div>
+        <div class="scrollbox"><table class="table"><tbody>${S.validation.map(v=>`<tr><td>${esc(v.label)}</td><td><button class="mini danger" onclick="S.validation=S.validation.filter(x=>x.id!=='${v.id}');saveLocal();render()">remove</button></td></tr>`).join('')||'<tr><td>Empty</td></tr>'}</tbody></table></div>
+      </div>
+    </div>
+  </div>`;
+};
+
+/* -------- Dashboard: stop calling the old metric "confidence" -------- */
+dashHTML=function(){
+  const T=samples(),R=letterModelReport(),real=T.filter(s=>!isSyntheticSample(s)&&s.category!=='letter_auto').length,
+        synt=T.filter(isSyntheticSample).length,v=training().lab?.v114Validation,pairs=commonNgrams(2,12),trios=commonNgrams(3,10);
+  const weakest=[...R].filter(x=>x.sufficient).sort((a,b)=>(a.accuracy??-1)-(b.accuracy??-1)).slice(0,6);
+  return `<div class="panel">
+    <div class="ph"><h2>Training overview</h2><span class="hint">${S.graph?`MedGraph loaded · ${defs().length} graph terms`:'Standalone mode'}</span></div>
+    <div class="metrics">
+      <div class="metric"><b>${T.length}</b><span>all samples</span></div>
+      <div class="metric"><b>${R.directCount}</b><span>direct real letters</span></div>
+      <div class="metric"><b>${R.covered5}/26</b><span>letters with ≥5 real examples</span></div>
+      <div class="metric"><b>${R.overall==null?'—':Math.round(R.overall*100)+'%'}</b><span>strict direct-letter CV</span></div>
+      <div class="metric"><b>${v?Math.round(v.accuracy*100)+'%':'—'}</b><span>held-out word accuracy</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph"><h3>Strict letter cross-validation</h3><span class="hint">direct real letter samples only · no inferred/synthetic leakage</span></div>
+    <div class="tagrow">${[...R].map(x=>{
+      const txt=x.count<3?`${x.ch} · n=${x.count}`:`${x.ch} ${Math.round((x.accuracy||0)*100)}%`;
+      const cls=x.count<3?'syn':(x.accuracy>=.8&&x.count>=5?'real':x.accuracy>=.55?'auto':'syn');
+      return `<span class="pill ${cls}" title="${x.count} direct samples${x.top3!=null?` · top-3 ${Math.round(x.top3*100)}%`:''}${x.confusion?` · confused with ${x.confusion}`:''}">${txt}</span>`;
+    }).join('')}</div>
+    <div class="notice" style="margin-top:10px"><b>Important:</b> this measures isolated letters only. It does <b>not</b> measure whether a word is segmented into the right letters. Word accuracy is the separate held-out metric above.</div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Weakest measured letters</h3></div>
+      ${weakest.length?`<ol>${weakest.map(x=>`<li>${x.ch}: ${Math.round(x.accuracy*100)}% across ${x.count} direct examples${x.confusion?` · often → ${x.confusion}`:''}</li>`).join('')}</ol>`:'<div class="notice warn">Not enough direct real letters yet. Aim for at least 5 per letter before trusting the metric.</div>'}
+    </div>
+    <div class="panel"><div class="ph"><h3>Word model readiness</h3></div>
+      <div class="notice">${lab114WordMetrics().n} real whole-word samples currently calibrate character spacing/length.<br>${v?`Held-out exact word accuracy: <b>${Math.round(v.accuracy*100)}%</b>.`:'Run the Test tab held-out validation before judging word recognition.'}</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><div class="ph"><h3>Common pairs</h3></div><div class="tagrow">${pairs.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div></div>
+    <div class="panel"><div class="ph"><h3>Common trios</h3></div><div class="tagrow">${trios.map(x=>`<span class="pill">${x.gram}</span>`).join('')}</div></div>
+  </div>`;
+};
+
+
+/* ==================== V12 SHARED STROKE-SEQUENCE RECOGNIZER ==================== */
+let LAB12_MODEL=null,LAB12_STAMP='',LAB12_CV_CACHE=null,LAB12_CV_STAMP='';
+function lab12Stamp(){const T=samples(),last=T[T.length-1];return`${T.length}|${last?.id||''}|${last?.created||0}`}
+function lab12Invalidate(){LAB12_MODEL=null;LAB12_STAMP='';LAB12_CV_CACHE=null;LAB12_CV_STAMP=''}
+function lab12Model(){const s=lab12Stamp();if(!LAB12_MODEL||LAB12_STAMP!==s){LAB12_MODEL=MedGraphStrokeSeq.buildModel(samples());LAB12_STAMP=s}return LAB12_MODEL}
+const _lab12StoreSample=storeSample;
+storeSample=function(category,label,strokes,meta={},source='lab-real'){const s=_lab12StoreSample(category,label,strokes,{...meta,sequenceVersion:12},source);lab12Invalidate();return s};
+const _lab12Merge=mergeTrainingPack;
+mergeTrainingPack=function(x){const n=_lab12Merge(x);lab12Invalidate();return n};
+
+function lab12Groups(strokes){
+  const seg=segmentInk(strokes),groups=[];for(const L of seg.lines)for(const w of L.words){const g=(w.items||[]).map(x=>x.st).filter(Boolean);if(g.length)groups.push(g)}
+  return groups.length?groups:[strokes];
+}
+function lab12RecognizeText(strokes){
+  const M=lab12Model(),groups=lab12Groups(strokes),per=groups.map(g=>MedGraphStrokeSeq.recognizeWord(g,M,{limit:7}));let raw=[];
+  if(per.length===1)raw=per[0].raw;
+  else if(per.every(x=>x.raw.length)){raw.push({label:per.map(x=>x.raw[0].label).join(' '),score:per.reduce((a,x)=>a+x.raw[0].score,0)/per.length,quality:per.every(x=>x.raw[0].quality==='good')?'good':'low',source:'personal multiword sequence decoder',trace:per.flatMap(x=>x.raw[0].trace||[])});
+    for(let i=0;i<per.length&&raw.length<7;i++)for(const alt of per[i].raw.slice(1,3))raw.push({...alt,label:per.map((x,j)=>j===i?alt.label:x.raw[0].label).join(' ')})
+  }
+  return{raw,groups:groups.length,details:per};
+}
+runTest=async function(){if(!S.test.strokes.length)return toast('Write something in the test pad');S.test.running=true;render();await new Promise(r=>setTimeout(r,20));S.test.result=lab12RecognizeText(S.test.strokes);S.test.running=false;render()};
+
+async function lab12RunValidation(){
+  if(!S.validation.length)return toast('Save held-out validation examples first');
+  const rows=[];let exact=0,cerSum=0;
+  for(let i=0;i<S.validation.length;i++){const v=S.validation[i],r=lab12RecognizeText(valStrokes(v)),guess=r.raw[0]?.label||'',ok=canon(guess)===canon(v.label),cer=MedGraphStrokeSeq.cer(canon(v.label),canon(guess));if(ok)exact++;cerSum+=cer;rows.push({truth:v.label,guess,ok,cer});if(i%3===2)await new Promise(q=>setTimeout(q,0))}
+  training().lab=training().lab||{};training().lab.v12Validation={at:Date.now(),count:S.validation.length,accuracy:exact/S.validation.length,cer:cerSum/S.validation.length,rows};labV7MarkTrainingDirty();await labV7FlushTraining();render();
+}
+function lab12CV(){
+  const s=lab12Stamp();if(LAB12_CV_CACHE&&LAB12_CV_STAMP===s)return LAB12_CV_CACHE;
+  const T=samples().filter(x=>x.category==='letter'&&!isSyntheticSample(x)&&/^[a-z]$/i.test(String(x.label||''))),by=new Map([...'abcdefghijklmnopqrstuvwxyz'].map(ch=>[ch,[]]));
+  T.forEach(x=>by.get(String(x.label).toLowerCase())?.push(x));const rows=[];let total=0,right=0;
+  for(const ch of by.keys()){const arr=by.get(ch);let hit=0;for(const sm of arr){const M=MedGraphStrokeSeq.buildModel(T.filter(x=>x.id!==sm.id)),g=MedGraphStrokeSeq.classifyLetter(sampleAsStrokes(sm),M,3),ok=g[0]?.label===ch;if(ok){hit++;right++}total++}rows.push({ch,count:arr.length,accuracy:arr.length?hit/arr.length:null})}
+  rows.overall=total?right/total:null;rows.covered5=rows.filter(x=>x.count>=5).length;rows.total=total;LAB12_CV_CACHE=rows;LAB12_CV_STAMP=s;return rows;
+}
+testHTML=function(){
+  const r=S.test.result,truth=String(S.test.truth||'').trim(),top=r?.raw?.[0],ed=truth&&top?MedGraphStrokeSeq.editDistance(canon(truth),canon(top.label)):null,c=truth&&top?MedGraphStrokeSeq.cer(canon(truth),canon(top.label)):null,v=training().lab?.v12Validation;
+  return `<div class="grid2"><div class="panel">
+    <div class="ph"><h2>Stroke-sequence test</h2><span class="hint">same raw decoder used by Whiteboard · no known-word substitution</span></div>
+    <div class="canvaswrap"><canvas class="ink" id="test-canvas" width="900" height="360"></canvas></div>
+    <div class="fld" style="margin-top:8px"><label class="eyebrow">True text (optional — scoring only)</label><input id="test-truth" value="${esc(S.test.truth||'')}" oninput="S.test.truth=this.value" placeholder="acetylcholine"></div>
+    <div class="actions"><button class="btn" onclick="runTest()" ${S.test.running?'disabled':''}>${S.test.running?'Decoding…':'Recognize stroke sequence'}</button><button class="mini" onclick="addValidationFromCanvas()">Save held-out sample</button><button class="mini danger" onclick="clearTest()">Clear</button></div>
+    ${r?`<div class="notice" style="margin-top:10px"><b>Raw personal sequence guesses</b><ol>${(r.raw||[]).map(g=>`<li><b>${esc(g.label)}</b> <span class="hint">· ${Math.round((g.score||0)*100)} · ${esc(g.quality||'')} · ${esc(g.source||'')}</span></li>`).join('')||'<li>No confident sequence. Rejected rather than forced.</li>'}</ol>${top?.trace?.length?`<div class="hint"><b>Joint alignment:</b> ${top.trace.filter(x=>!x.skip).map(x=>`${esc(x.label)}(${Math.round((x.score||0)*100)})`).join(' · ')}</div>`:''}${ed!=null?`<div class="hint">${ed} character edits · CER ${(c*100).toFixed(1)}%. Truth was not used to guess.</div>`:''}</div>`:''}
+  </div><div><div class="panel"><div class="ph"><h3>Held-out word metrics</h3></div>${v?`<div class="metrics" style="grid-template-columns:1fr 1fr"><div class="metric"><b>${Math.round(v.accuracy*100)}%</b><span>exact words</span></div><div class="metric"><b>${(v.cer*100).toFixed(1)}%</b><span>character error rate</span></div></div>`:'<div class="notice warn">Not measured yet.</div>'}<button class="mini" onclick="lab12RunValidation()" style="margin-top:8px">Run sequence validation</button></div>
+  <div class="panel"><div class="ph"><h3>Validation set</h3></div><div class="scrollbox"><table class="table"><tbody>${S.validation.map(v=>`<tr><td>${esc(v.label)}</td><td><button class="mini danger" onclick="S.validation=S.validation.filter(x=>x.id!=='${v.id}');saveLocal();render()">remove</button></td></tr>`).join('')||'<tr><td>Empty</td></tr>'}</tbody></table></div></div></div></div>`;
+};
+dashHTML=function(){
+  const T=samples(),M=lab12Model(),CV=lab12CV(),v=training().lab?.v12Validation;
+  return `<div class="panel"><div class="ph"><h2>Personal stroke-sequence model</h2><span class="hint">v12 · DTW letters + joint word decoder</span></div><div class="metrics">
+    <div class="metric"><b>${T.length}</b><span>all samples</span></div><div class="metric"><b>${M.directLetters}</b><span>direct real letters</span></div><div class="metric"><b>${CV.covered5}/26</b><span>letters with ≥5 real examples</span></div><div class="metric"><b>${CV.overall==null?'—':Math.round(CV.overall*100)+'%'}</b><span>strict DTW letter CV</span></div><div class="metric"><b>${v?Math.round(v.accuracy*100)+'%':'—'}</b><span>held-out exact word</span></div><div class="metric"><b>${v?(v.cer*100).toFixed(1)+'%':'—'}</b><span>held-out CER</span></div></div></div>
+  <div class="panel"><div class="ph"><h3>Direct-letter DTW cross-validation</h3><span class="hint">no inferred/synthetic leakage</span></div><div class="tagrow">${[...CV].map(x=>`<span class="pill ${x.count<3?'syn':x.accuracy>=.8&&x.count>=5?'real':x.accuracy>=.55?'auto':'syn'}">${x.count<3?`${x.ch} · n=${x.count}`:`${x.ch} ${Math.round(x.accuracy*100)}% · n=${x.count}`}</span>`).join('')}</div><div class="notice" style="margin-top:10px">Words are decoded by scoring character identity and boundary position together across the horizontal stroke sequence. Equal-width character boxes are no longer the primary recognizer.</div></div>
+  <div class="grid2"><div class="panel"><div class="ph"><h3>Readiness</h3></div><div class="notice">${M.coveredLetters}/26 letters have a direct real example.<br>Learned character width: ${M.binsPerChar.toFixed(1)} sequence columns.<br>${v?`Held-out CER: <b>${(v.cer*100).toFixed(1)}%</b>.`:'Run held-out word validation before trusting word accuracy.'}</div></div><div class="panel"><div class="ph"><h3>What training changes</h3></div><div class="notice">Letters update DTW exemplars and sequence templates immediately. Pairs/trios add context. Whole-word samples are personal memory only.</div></div></div>`;
 };
 
 (async()=>{

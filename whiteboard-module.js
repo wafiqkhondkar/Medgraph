@@ -2678,3 +2678,257 @@ whiteboardHTML=function(){
   return html;
 };
 
+
+/* ==================== V11.4 WHITEBOARD RECOGNITION CALIBRATION ====================
+   - `mode="letter"` can ONLY compare against letter prototypes.
+   - character scoring uses bitmap + aspect + stroke count + direction.
+   - multiple prototypes vote; one accidental nearest neighbor cannot dominate.
+   - weak spellings are rejected instead of surfacing unrelated words.
+================================================================================== */
+
+let MG114_DESC_CACHE=new Map();
+let MG114_INDEX_CACHE=null;
+let MG114_INDEX_STAMP='';
+
+const _wtAllowedCatsV114=wtAllowedCats;
+wtAllowedCats=function(mode){
+  if(mode==='letter')return new Set(['letter','letter_auto','letter_synthetic_context']);
+  return _wtAllowedCatsV114(mode);
+};
+
+function mg114TrainingStamp(){
+  const T=wtSamples(),last=T[T.length-1];
+  return`${T.length}|${last?.id||''}|${last?.created||0}`;
+}
+function mg114ResetCaches(){
+  MG114_DESC_CACHE.clear();MG114_INDEX_CACHE=null;MG114_INDEX_STAMP='';
+  try{MG_HWR_PROTO_CACHE=null}catch(e){}
+  try{MG_V7_LETTER_GEOM_CACHE=null}catch(e){}
+  try{MG_V8_CHUNK_SCORE_CACHE?.clear?.()}catch(e){}
+}
+const _mgV11ReloadCanonicalV114=mgV11ReloadCanonicalFromStore;
+mgV11ReloadCanonicalFromStore=async function(){
+  const r=await _mgV11ReloadCanonicalV114();
+  mg114ResetCaches();return r;
+};
+window.mgV11ReloadCanonicalFromStore=mgV11ReloadCanonicalFromStore;
+
+function mg114CompactDescriptor(s){
+  const key=s?.id||JSON.stringify([s?.category,s?.label,s?.created]).slice(0,120);
+  if(MG114_DESC_CACHE.has(key))return MG114_DESC_CACHE.get(key);
+  const pts=[];for(const st of(s?.strokes||[]))for(const q of(st.pts||[])){
+    const x=Array.isArray(q)?+q[0]:+q.x,y=Array.isArray(q)?+q[1]:+q.y;
+    if(Number.isFinite(x)&&Number.isFinite(y))pts.push({x,y});
+  }
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(const p of pts){x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)}
+  const aspect=pts.length?(x1-x0)/Math.max(.02,y1-y0):1;
+  const dir=Array(8).fill(0);let total=0;
+  for(const st of(s?.strokes||[])){
+    const a=st.pts||[];
+    for(let i=1;i<a.length;i++){
+      const p0=a[i-1],p1=a[i],xA=Array.isArray(p0)?+p0[0]:+p0.x,yA=Array.isArray(p0)?+p0[1]:+p0.y,
+            xB=Array.isArray(p1)?+p1[0]:+p1.x,yB=Array.isArray(p1)?+p1[1]:+p1.y;
+      const dx=xB-xA,dy=yB-yA,l=Math.hypot(dx,dy);if(l<.001)continue;
+      let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI*2;
+      dir[Math.floor(ang/(Math.PI/4))%8]+=l;total+=l;
+    }
+  }
+  if(total)for(let i=0;i<8;i++)dir[i]/=total;
+  const d={sig:s?.sig||[],aspect,strokeCount:(s?.strokes||[]).length||1,dir};
+  MG114_DESC_CACHE.set(key,d);return d;
+}
+function mg114QueryDescriptor(strokes){
+  const b=wtWordBounds(strokes),aspect=b.w/Math.max(1,b.h),dir=Array(8).fill(0);let total=0;
+  for(const st of strokes){
+    const a=st.pts||[];
+    for(let i=1;i<a.length;i++){
+      const dx=a[i].x-a[i-1].x,dy=a[i].y-a[i-1].y,l=Math.hypot(dx,dy);if(l<.2)continue;
+      let ang=Math.atan2(dy,dx);if(ang<0)ang+=Math.PI*2;
+      dir[Math.floor(ang/(Math.PI/4))%8]+=l;total+=l;
+    }
+  }
+  if(total)for(let i=0;i<8;i++)dir[i]/=total;
+  return{sig:wtSparseSignature(strokes),aspect,strokeCount:strokes.length||1,dir};
+}
+function mg114GeomSim(a,b){
+  const pix=wtSigSim(a.sig,b.sig);
+  const asp=Math.exp(-1.25*Math.abs(Math.log((a.aspect+.04)/(b.aspect+.04))));
+  const sc=Math.exp(-Math.abs(a.strokeCount-b.strokeCount)/2.3);
+  let l1=0;for(let i=0;i<8;i++)l1+=Math.abs((a.dir?.[i]||0)-(b.dir?.[i]||0));
+  const dh=Math.max(0,1-l1/2);
+  return .60*pix+.18*asp+.10*sc+.12*dh;
+}
+function mg114Weight(s){
+  if(String(s?.source||'').startsWith('synthetic')||s?.meta?.synthetic)return Math.min(.12,wtOpenSampleWeight(s));
+  return wtOpenSampleWeight(s);
+}
+function mg114Cats(n){
+  return n===1?new Set(['letter','letter_auto','letter_synthetic_context']):
+         n===2?new Set(['letter_pair','pair_auto','pair_synthetic_context']):
+               new Set(['letter_trio','trio_auto','trio_synthetic_context']);
+}
+function mg114Index(){
+  const stamp=mg114TrainingStamp();
+  if(MG114_INDEX_CACHE&&MG114_INDEX_STAMP===stamp)return MG114_INDEX_CACHE;
+  const idx={1:new Map(),2:new Map(),3:new Map()};
+  for(const s of wtSamples()){
+    const label=String(s.label||'').trim().toLowerCase(),
+          n=[...label].filter(ch=>/\p{L}|\d/u.test(ch)).length;
+    if(n<1||n>3||!mg114Cats(n).has(s.category)||!s.sig?.length)continue;
+    if(!idx[n].has(label))idx[n].set(label,[]);
+    idx[n].get(label).push(s);
+  }
+  for(const n of[1,2,3])for(const [label,a]of idx[n]){
+    a.sort((x,y)=>mg114Weight(y)-mg114Weight(x)||(y.created||0)-(x.created||0));
+    idx[n].set(label,a.slice(0,14));
+  }
+  MG114_INDEX_CACHE=idx;MG114_INDEX_STAMP=stamp;return idx;
+}
+function mg114Aggregate(vals){
+  vals=vals.filter(Number.isFinite).sort((a,b)=>b-a).slice(0,3);
+  if(!vals.length)return 0;
+  if(vals.length===1)return vals[0]*.88;
+  if(vals.length===2)return vals[0]*.68+vals[1]*.32;
+  return vals[0]*.58+vals[1]*.27+vals[2]*.15;
+}
+mgRecognizeChunkV6=function(strokes,n,limit=5){
+  if(!strokes?.length)return[];
+  const q=mg114QueryDescriptor(strokes),out=[];
+  for(const [label,arr]of mg114Index()[n]){
+    const vals=arr.map(s=>mg114GeomSim(q,mg114CompactDescriptor(s))*mg114Weight(s));
+    const score=mg114Aggregate(vals);
+    if(score>=.12)out.push({label,score,count:vals.length});
+  }
+  return out.sort((a,b)=>b.score-a.score).slice(0,limit);
+};
+mgChunkSpecificMapV8=function(strokes,n,labels){
+  const out=new Map();if(!strokes?.length||!labels?.size)return out;
+  const q=mg114QueryDescriptor(strokes),idx=mg114Index()[n];
+  for(const label of labels){
+    const vals=(idx.get(String(label).toLowerCase())||[]).map(s=>mg114GeomSim(q,mg114CompactDescriptor(s))*mg114Weight(s));
+    out.set(label,mg114Aggregate(vals));
+  }
+  return out;
+};
+
+/* Strict single-letter path: words/nodes are never allowed to masquerade as letters. */
+mgV11RecognizeShort=async function(strokes,mode='node'){
+  if(mode==='letter'){
+    const raw=mgRecognizeChunkV6(strokes,1,7),top=raw[0],second=raw[1],
+          margin=(top?.score||0)-(second?.score||0);
+    const usable=raw.filter(x=>x.score>=.24);
+    return{
+      guesses:usable.map(x=>x.label),
+      openGuesses:usable.map(x=>x.label),
+      knownGuesses:[],
+      engine:usable.length?`calibrated personal letters · margin ${margin.toFixed(2)}`:'no confident personal letter',
+      trainingCount:mgHwrCountV6(),
+      scores:usable
+    };
+  }
+  const P=wtPrototypeMatches(strokes,mode).filter(x=>x.score>=.42);
+  return{guesses:P.map(x=>x.label),openGuesses:P.map(x=>x.label),knownGuesses:[],engine:P.length?'personal prototype':'no confident short-text guess',trainingCount:mgHwrCountV6()};
+};
+
+/* Reject garbage open spellings instead of forcing a known-word answer. */
+const _mgOpenSpellCandidatesV114=mgOpenSpellCandidatesV8;
+mgOpenSpellCandidatesV8=function(strokes){
+  const r=_mgOpenSpellCandidatesV114(strokes);
+  const kept=(r.candidates||[]).filter(x=>x.score>=.20);
+  r.candidates=kept;
+  return r;
+};
+
+mgRecognizeSingleV9=async function(strokes,mode='node'){
+  const dec=mgOpenSpellCandidatesV8(strokes),est=dec.lengthModel.est;
+  if(est<1.45&&!wtLikelyMultiLetter(strokes))return mgV11RecognizeShort(strokes,mode);
+
+  let raw=dec.candidates.slice();
+  for(const x of wtWordPrototypeMatches(strokes,mode).slice(0,3)){
+    if(x.score>=.50&&!raw.some(y=>canon(y.label)===canon(x.label)))
+      raw.push({label:x.label,score:x.score*.82,source:'personal whole-word memory'});
+  }
+  raw.sort((a,b)=>b.score-a.score);
+
+  /* Require either a decent top score or a clear margin. */
+  const top=raw[0],second=raw[1],margin=(top?.score||0)-(second?.score||0);
+  if(!top || (top.score<.24 && margin<.045)){
+    return{guesses:[],openGuesses:[],knownGuesses:[],engine:'no confident raw spelling',trainingCount:mgHwrCountV6(),estimatedCharacters:est};
+  }
+
+  const open=[],seen=new Set();
+  for(const x of raw){
+    if(x.score<.18)continue;
+    const k=canon(x.label);if(!k||seen.has(k))continue;
+    seen.add(k);open.push(x.label);if(open.length>=7)break;
+  }
+
+  /* Known terms remain secondary and never replace raw spelling. */
+  const known=[];
+  const secondary=mode==='relation'?mgRelationSuggestionsV9(raw):mgKnownSuggestionsV7(raw);
+  for(const x of secondary){
+    const k=canon(x.label);if(!k||seen.has(k))continue;
+    seen.add(k);known.push(x.label);if(known.length>=3)break;
+  }
+  return{
+    guesses:[...open,...known],
+    openGuesses:open,knownGuesses:known,
+    engine:`calibrated personal spelling · ~${Math.round(est)} chars`,
+    trainingCount:mgHwrCountV6(),estimatedCharacters:est,
+    topScore:top.score,margin
+  };
+};
+
+/* Node boxes should not auto-fill with a weak arbitrary guess. */
+wbPersonalNodeGroupV113=function(strokes){
+  const candidates=[];
+  try{
+    const dec=mgOpenSpellCandidatesV8(strokes);
+    for(const x of dec.candidates||[])if(x.score>=.24)candidates.push(x);
+  }catch(e){}
+  try{
+    for(const x of wtWordPrototypeMatches(strokes,'node').slice(0,5)){
+      if(x.score>=.52)candidates.push({label:x.label,score:x.score*.82,source:'personal whole-word memory'});
+    }
+  }catch(e){}
+  candidates.sort((a,b)=>(+b.score||0)-(+a.score||0));
+  if(candidates.length>1 && candidates[0].score<.30 && candidates[0].score-candidates[1].score<.04)return[];
+  return wbUniqueCandidatesV113(candidates,7);
+};
+
+
+/* ==================== V12 SHARED STROKE-SEQUENCE WHITEBOARD ==================== */
+let MG12_MODEL=null,MG12_STAMP='';
+function mg12Stamp(){const T=wtSamples(),last=T[T.length-1];return`${T.length}|${last?.id||''}|${last?.created||0}`}
+function mg12Invalidate(){MG12_MODEL=null;MG12_STAMP=''}
+function mg12Model(){const s=mg12Stamp();if(!MG12_MODEL||MG12_STAMP!==s){MG12_MODEL=MedGraphStrokeSeq.buildModel(wtSamples());MG12_STAMP=s}return MG12_MODEL}
+const _mg12Reload=mgV11ReloadCanonicalFromStore;
+mgV11ReloadCanonicalFromStore=async function(){const r=await _mg12Reload();mg12Invalidate();return r};window.mgV11ReloadCanonicalFromStore=mgV11ReloadCanonicalFromStore;
+
+wtCompactStrokes=function(strokes){
+  if(!strokes?.length)return[];const b=wbUnionBounds(strokes.map(wbStrokeBounds)),den=Math.max(1,b.w,b.h);
+  return strokes.map(st=>{const pts=st.pts||[],t0=pts[0]?.t||0,step=Math.max(1,Math.floor(pts.length/100));return{pts:pts.filter((_,i)=>i%step===0).slice(0,110).map(p=>[
+    +((p.x-b.x)/den).toFixed(4),+((p.y-b.y)/den).toFixed(4),+(p.p??.5).toFixed(3),+Math.max(0,(p.t||t0)-t0).toFixed(1)
+  ])}});
+};
+const _wtStore12=wtStoreExample;
+wtStoreExample=function(category,label,strokes,meta={},source='trainer'){const s=_wtStore12(category,label,strokes,{...meta,sequenceVersion:12},source);mg12Invalidate();return s};
+
+function mg12Groups(strokes){try{const g=mgWordGroupsV9(strokes);if(g?.length)return g}catch(e){}return[strokes]}
+function mg12Word(strokes){return MedGraphStrokeSeq.recognizeWord(strokes,mg12Model(),{limit:7})}
+async function mg12RecognizeText(strokes,mode='node'){
+  await mgV11EnsureCanonical();const M=mg12Model();
+  if(mode==='letter'){const raw=MedGraphStrokeSeq.classifyLetter(strokes,M,7),top=raw[0],margin=(top?.score||0)-(raw[1]?.score||0),good=raw.filter(x=>x.score>=.30).slice(0,7);
+    if(!top||top.score<.34||(top.score<.46&&margin<.025))return{guesses:[],openGuesses:[],knownGuesses:[],engine:'no confident personal stroke letter',scores:raw,trainingCount:mgHwrCountV6()};
+    return{guesses:good.map(x=>x.label),openGuesses:good.map(x=>x.label),knownGuesses:[],engine:`personal stroke DTW · margin ${margin.toFixed(2)}`,scores:good,trainingCount:mgHwrCountV6()};
+  }
+  const groups=mg12Groups(strokes),per=groups.map(mg12Word);let raw=[];
+  if(per.length===1)raw=per[0].raw;
+  else if(per.every(x=>x.raw.length)){raw.push({label:per.map(x=>x.raw[0].label).join(' '),score:per.reduce((a,x)=>a+x.raw[0].score,0)/per.length,quality:per.every(x=>x.raw[0].quality==='good')?'good':'low',source:'personal multiword sequence decoder',trace:per.flatMap(x=>x.raw[0].trace||[])});for(let i=0;i<per.length&&raw.length<7;i++)for(const alt of per[i].raw.slice(1,3))raw.push({...alt,label:per.map((x,j)=>j===i?alt.label:x.raw[0].label).join(' ')})}
+  const open=[],seen=new Set();for(const x of raw){const k=canon(x.label);if(!k||seen.has(k))continue;seen.add(k);open.push(x.label);if(open.length>=7)break}
+  return{guesses:open,openGuesses:open,knownGuesses:[],engine:open.length?'personal stroke-sequence decoder':'no confident personal sequence',trainingCount:mgHwrCountV6(),sequenceDetails:per};
+}
+wbRecognizeStrokes=mg12RecognizeText;
+wbPersonalNodeGroupV113=function(strokes){const r=mg12Word(strokes);return(r.raw||[]).filter(x=>x.score>=.30).map(x=>({label:x.label,score:x.score,source:x.source}))};
+

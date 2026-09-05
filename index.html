@@ -68,6 +68,11 @@ main{overflow-y:auto;padding:20px 24px 90px}
 
 /* ---------- compose ---------- */
 .compose{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.classkeys{display:none;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 2px;padding:8px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.classkeys.show{display:flex}.classkeys .cklabel{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-right:2px}
+.classkeys button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 8px;font:600 11px/1.1 IBM Plex Mono,monospace;color:var(--ink);cursor:pointer}
+.classkeys button:hover{border-color:var(--ink)}
+
 #edwrap{position:relative}
 #hl,#src{
   font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:13.5px;line-height:1.72;min-height:340px;
@@ -149,7 +154,7 @@ main{overflow-y:auto;padding:20px 24px 90px}
 .gate{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .gtype{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;border:1px solid currentColor;border-radius:100px;padding:1px 7px}
 .g-unless{color:#B91C1C}.g-only_if{color:#0369A1}.g-requires_cofactor{color:#B45309}
-.g-dose_dependent{color:#6B46C1}.g-context_dependent{color:#6B46C1}.g-potentiated_by{color:#15803D}
+.g-dose_dependent{color:#6B46C1}.g-context_dependent{color:#6B46C1}.g-possible{color:#B45309}.g-potentiated_by{color:#15803D}
 .arrow.neg .line{border-top-style:dashed}
 .arrow.neg .rel{text-decoration:line-through}
 #mapwrap{position:relative;border:1px solid var(--line);border-radius:var(--r);background:#FAFBFC;overflow:hidden}
@@ -411,7 +416,7 @@ window.addEventListener('load',function(){
 
 <header>
   <div class="brand">MedGraph<small>type it, it files itself</small></div>
-  <span class="chip" style="background:#fff;color:#12171C;border-color:#fff;white-space:nowrap">Portable offline · v9</span>
+  <span class="chip" style="background:#fff;color:#12171C;border-color:#fff;white-space:nowrap">Portable offline · v12.3</span>
   <div class="hbtns">
     <button class="nbtn" id="side-open-btn" onclick="toggleSidebar()">Terms</button>
     <button class="nbtn solid" onclick="openCompose()">Compose</button>
@@ -454,17 +459,60 @@ window.addEventListener('load',function(){
 /* ==================== CONSTANTS ==================== */
 const FAMILIES=[
  {key:'causal',label:'Causal / mechanistic',color:'#C2255C',rels:['causes','affects','damages','facilitates','provides','determines','repairs','maintains','misses','produces','cleaves','modifies','inhibits','activates','induces','triggers','prevents','stimulates','suppresses','required_for']},
- {key:'structural',label:'Structural / compositional',color:'#2B6CB0',rels:['is_part_of','composed_of','located_in','contains','crosses','transports','derived_from','deficient_in','acquires']},
+ {key:'structural',label:'Structural / compositional',color:'#2B6CB0',rels:['is_part_of','composed_of','of','located_in','contains','crosses','transports','derived_from','deficient_in','acquires']},
  {key:'taxonomic',label:'Taxonomic / classification',color:'#6B46C1',rels:['is_a','subtype_of','member_of','classified_by']},
- {key:'property',label:'Property / attribute',color:'#0F766E',rels:['has_property','has_state']},
- {key:'interactional',label:'Interactional / binding',color:'#B45309',rels:['binds_to','has_affinity_for','receptor_for','ligand_for','substrate_of','cofactor_for','metabolizes','uses','signals','dissociates_from']},
+ {key:'property',label:'Property / attribute',color:'#0F766E',rels:['has_property','has_state','has_manner']},
+ {key:'interactional',label:'Interactional / binding',color:'#B45309',rels:['binds_to','has_affinity_for','receptor_for','ligand_for','substrate_of','cofactor_for','metabolizes','uses','signals','dissociates_from','targets','interacts_with']},
  {key:'regulatory',label:'Regulatory / quantitative',color:'#15803D',rels:['increases','decreases','upregulates','downregulates','depolarizes','polarizes']},
- {key:'associative',label:'Clinical / associative',color:'#64748B',rels:['associated_with','presents_with','indicates','seen_in','transmitted_by','predisposes_to','infects','discovered']},
+ {key:'associative',label:'Clinical / associative',color:'#64748B',rels:['associated_with','presents_with','has_prodrome','indicates','seen_in','transmitted_by','predisposes_to','infects','discovered']},
  {key:'therapeutic',label:'Therapeutic',color:'#0369A1',rels:['treated_by','contraindicated_in','used_for','sensitive_to','resistant_to','potentiates','antagonizes']},
  {key:'spatial',label:'Spatial / anatomical',color:'#0E7490',rels:['lateral_to','medial_to','superior_to','inferior_to','anterior_to','posterior_to','proximal_to','distal_to','superficial_to','deep_to','inside_of','outside_of','survives_in','escapes','surrounds','adjacent_to','left_of','right_of','drains_into','supplies','innervates']},
  {key:'comparative',label:'Comparative',color:'#A21CAF',rels:['similar_to','appears_as','contrasts_with','opposite_of','precedes']},
 ];
-const ALL_RELS=[...new Set(FAMILIES.flatMap(f=>f.rels))];  /* mutated by applyCustomVerbs */
+const ALL_RELS=[...new Set(FAMILIES.flatMap(f=>f.rels))];
+
+/* Human wording is separate from canonical storage keys.
+   This keeps exported graph semantics stable while avoiding snake_case / odd
+   relation wording in the UI. */
+const REL_UI={
+  causes:'causes', affects:'affects', damages:'damages', facilitates:'facilitates',
+  provides:'provides', determines:'determines', repairs:'repairs', maintains:'maintains',
+  misses:'fails to detect / misses', produces:'produces', cleaves:'cleaves / breaks down',
+  modifies:'modifies', inhibits:'inhibits', activates:'activates', induces:'induces',
+  triggers:'triggers', prevents:'prevents', stimulates:'stimulates', suppresses:'suppresses',
+  required_for:'is required for',
+  is_part_of:'is part of', composed_of:'is composed of', of:'of', located_in:'is located in',
+  contains:'contains / has', crosses:'crosses', transports:'transports',
+  derived_from:'is derived from', deficient_in:'is deficient in', acquires:'acquires',
+  is_a:'is a type of', subtype_of:'is a subtype of', member_of:'is a member of',
+  classified_by:'is classified by',
+  has_property:'has property / feature', has_state:'has state', has_manner:'occurs / proceeds in this manner',
+  binds_to:'binds to', has_affinity_for:'has affinity for', receptor_for:'is receptor for',
+  ligand_for:'is ligand for', substrate_of:'is substrate of', cofactor_for:'is cofactor for',
+  metabolizes:'metabolizes', uses:'uses', signals:'signals through / to',
+  dissociates_from:'dissociates from', targets:'targets / acts on',
+  interacts_with:'interacts with',
+  increases:'increases', decreases:'decreases', upregulates:'upregulates',
+  downregulates:'downregulates', depolarizes:'depolarizes', polarizes:'polarizes',
+  associated_with:'is associated with', presents_with:'presents with', has_prodrome:'has prodrome / early symptoms',
+  indicates:'indicates / supports diagnosis of', seen_in:'is seen in',
+  transmitted_by:'is transmitted by', predisposes_to:'predisposes to',
+  infects:'infects', discovered:'is detected / discovered by',
+  treated_by:'is treated by', contraindicated_in:'is contraindicated in',
+  used_for:'is used for', sensitive_to:'is sensitive to', resistant_to:'is resistant to',
+  potentiates:'potentiates', antagonizes:'antagonizes',
+  lateral_to:'is lateral to', medial_to:'is medial to', superior_to:'is superior to',
+  inferior_to:'is inferior to', anterior_to:'is anterior to', posterior_to:'is posterior to',
+  proximal_to:'is proximal to', distal_to:'is distal to', superficial_to:'is superficial to',
+  deep_to:'is deep to', inside_of:'is inside', outside_of:'is outside',
+  survives_in:'survives in', escapes:'escapes', surrounds:'surrounds',
+  adjacent_to:'is adjacent to', left_of:'is left of', right_of:'is right of',
+  drains_into:'drains into', supplies:'supplies', innervates:'innervates',
+  similar_to:'is similar to', appears_as:'appears as', contrasts_with:'contrasts with',
+  opposite_of:'is opposite to', precedes:'precedes'
+};
+const relUI=r=>REL_UI[r]||String(r||'').replace(/_/g,' ');
+  /* mutated by applyCustomVerbs */
 /* ---------- STATES: the adjective word type ----------
    A state is not a thing, so it should not be a node like any other. These are
    scalar or binary qualities that come in opposing pairs, which is what makes
@@ -534,13 +582,14 @@ function readState(text){
 }
 const stateAxis=w=>{const h=STATEIDX.get(String(w||'').toLowerCase());return h?h.axis:''};
 const stateOpposite=w=>{const h=STATEIDX.get(String(w||'').toLowerCase());return h?h.opposite:''};
-const SYMMETRIC=new Set(['similar_to','associated_with','opposite_of','contrasts_with']);
+const SYMMETRIC=new Set(['similar_to','associated_with','opposite_of','contrasts_with','interacts_with']);
 const CONDITIONS=[
  ['unless','effect is cancelled when this is present'],
  ['only_if','effect fires only when this is met'],
  ['requires_cofactor','necessary machinery, not a gate'],
  ['dose_dependent','effect scales or flips with dose'],
  ['context_dependent','effect changes with setting'],
+ ['possible','can / may occur — possible, not guaranteed'],
  ['potentiated_by','not a gate — amplifies the effect'],
 ];
 function famOf(r){return FAMILIES.find(f=>f.rels.includes(r))||{color:'#5C6873',label:'—'}}
@@ -788,6 +837,99 @@ const VERBS=[
 
 
 ];
+
+/* Clean broad relations used by class slots. */
+VERBS.unshift(
+  ['interacts with|interact with|interacting with|interacted with','interacts_with'],
+  ['targets|target|targeting|targeted|acts specifically on|acts at','targets']
+);
+
+
+/* Prodrome-specific clinical wording.
+   Canonical direction: disease/virus -> has_prodrome -> early symptom/finding. */
+VERBS.unshift(
+  ['has a prodrome of|has prodrome of|has a prodrome with|has prodrome with|has prodromal symptoms of|has prodromal features of|has early symptoms of|has early features of','has_prodrome'],
+  ['is preceded by a prodrome of|is preceded by prodromal|is preceded by early symptoms of','has_prodrome'],
+  ['is a prodrome of|is part of the prodrome of|is a prodromal symptom of|is a prodromal feature of|is prodromal for|occurs in the prodrome of|occurs during the prodrome of','has_prodrome',true]
+);
+
+
+/* ==================== V12.2 CURATED MEDICAL / SCIENCE VERBS ====================
+   These are explicit human-written surfaces. They sit before the mechanical
+   canonical-name expansion so Compose has useful natural language instead of
+   relying on generated inflections. */
+VERBS.unshift(
+  /* causal / mechanistic */
+  ['leads to|lead to|leading to|led to|results in|result in|resulting in|resulted in|gives rise to|give rise to|giving rise to|gave rise to','causes'],
+  ['results from|result from|resulting from|resulted from|is due to|are due to|was due to|were due to|is secondary to|are secondary to|stems from|stem from|stemming from','causes',true],
+  ['contributes to|contribute to|contributing to|contributed to|promotes|promote|promoting|promoted|favors|favours|favor|favour|favoring|favouring|facilitates|facilitate|facilitating|facilitated|enables|enable|enabling|enabled|permits|permit|permitting|permitted|allows|allow|allowing|allowed','facilitates'],
+  ['mediates|mediate|mediating|mediated|is responsible for|are responsible for|accounts for|account for|drives|drive|driving|driven','causes'],
+  ['initiates|initiate|initiating|initiated|starts|start|starting|started','triggers'],
+  ['terminates|terminate|terminating|terminated|ends|end|ending|ended|halts|halt|halting|stops|stop|stopping','suppresses'],
+  ['protects against|protect against|protecting against|protected against|guards against|guard against','prevents'],
+  ['exacerbates|exacerbate|exacerbating|exacerbated|aggravates|aggravate|aggravating|aggravated|worsens|worsen|worsening|worsened','increases'],
+
+  /* molecular modification */
+  ['phosphorylates|phosphorylate|phosphorylating|phosphorylated|dephosphorylates|dephosphorylate|dephosphorylating|dephosphorylated|methylates|methylate|methylating|methylated|demethylates|demethylate|demethylating|demethylated|acetylates|acetylate|acetylating|acetylated|deacetylates|deacetylate|ubiquitinates|ubiquitinate|ubiquitinating|ubiquitinated|glycosylates|glycosylate|glycosylating|glycosylated|hydroxylates|hydroxylate|hydroxylating|hydroxylated|carboxylates|carboxylate|carboxylating|carboxylated|conjugates|conjugate|conjugating|conjugated','modifies'],
+  ['degrades|degrade|degrading|degraded|digests|digest|digesting|digested|hydrolyzes|hydrolyse|hydrolyses|hydrolyzing|hydrolysed|proteolyzes|proteolyse|proteolyses|proteolytically cleaves','cleaves'],
+
+  /* production / gene expression */
+  ['secretes|secrete|secreting|secreted|releases|release|releasing|released|expresses|express|expressing|expressed|synthesizes|synthesise|synthesize|synthesizing|synthesised|synthesized|generates|generate|generating|generated|forms|form|forming|formed|encodes|encode|encoding|encoded|transcribes|transcribe|transcribing|transcribed|translates|translate|translating|translated|replicates|replicate|replicating|replicated','produces'],
+
+  /* transport / location */
+  ['localizes to|localises to|localize to|localise to|localized to|localised to|resides in|reside in|residing in|is found in|are found in|found in|is present in|are present in|present in|is expressed in|are expressed in|expressed in','located_in'],
+  ['enters|enter|entering|entered|penetrates|penetrate|penetrating|penetrated|traverses|traverse|traversing|traversed|passes through|pass through|passing through','crosses'],
+  ['exports|export|exporting|exported|imports|import|importing|imported|translocates|translocate|translocating|translocated|shuttles|shuttle|shuttling|shuttled|pumps|pump|pumping|pumped','transports'],
+
+  /* structure / lineage */
+  ['consists of|consist of|consisting of|is composed of|are composed of|composed of','composed_of'],
+  ['comprises|comprise|comprising|includes|include|including|contains|contain|containing|contains within','contains'],
+  ['belongs to|belong to|belonging to|is part of|are part of|part of|is a component of|are components of|component of','is_part_of'],
+  ['originates from|originate from|originating from|originated from|is derived from|are derived from|derived from|comes from|come from','derived_from'],
+  ['differentiates into|differentiate into|differentiating into|differentiated into|matures into|mature into|maturing into|develops into|develop into|developing into|transforms into|transform into|becomes|become','derived_from',true],
+
+  /* interactions / signaling */
+  ['associates with|associate with|associating with|associated with|complexes with|complex with|dimerizes with|dimerises with|heterodimerizes with|homodimerizes with|cooperates with|cooperate with','interacts_with'],
+  ['recognizes|recognises|recognize|recognise|recognizing|recognising|recognized|recognised|engages|engage|engaging|engaged','binds_to'],
+  ['signals through|signal through|signaling through|signals via|signal via|signals to|signal to|transmits a signal to|transmit a signal to','signals'],
+  ['agonizes|agonises|agonize|agonise|agonizing|agonising|is an agonist at|acts as an agonist at','activates'],
+  ['blocks|block|blocking|blocked|antagonizes|antagonises|antagonize|antagonise|competitively inhibits|irreversibly inhibits|allosterically inhibits','inhibits'],
+
+  /* clinical / pathology */
+  ['manifests as|manifest as|manifesting as|manifested as|presents as|present as|presenting as|presents with|present with|presenting with','presents_with'],
+  ['correlates with|correlate with|correlating with|correlated with|co-occurs with|cooccurs with|coexists with|coexist with','associated_with'],
+  ['is diagnosed by|are diagnosed by|diagnosed by|is confirmed by|are confirmed by|confirmed by|is detected by|are detected by|detected by|is identified by|identified by','indicates',true],
+  ['treats|treat|treating|treated|manages|manage|managing|managed|ameliorates|ameliorate|relieves|relieve|relieving|relieved','treated_by',true],
+  ['is treated with|are treated with|treated with|is managed with|managed with|responds to|respond to|responsive to','treated_by'],
+  ['colonizes|colonises|colonize|colonise|colonizing|colonising|colonized|colonised|invades|invade|invading|invaded|disseminates to|disseminate to|spreads to|spread to','infects'],
+  ['persists in|persist in|persisting in|remains in|remain in|latent in|is latent in|are latent in|reactivates in|reactivate in','survives_in'],
+
+  /* anatomy */
+  ['drains to|drain to|draining to|drained to|empties into|empty into|flows into|flow into','drains_into'],
+  ['is supplied by|are supplied by|supplied by|receives blood from|receive blood from','supplies',true],
+  ['is innervated by|are innervated by|innervated by|receives innervation from|receive innervation from','innervates',true],
+
+  /* common quantitative wording */
+  ['raises|raise|raising|raised|elevates|elevate|elevating|elevated|augments|augment|augmenting|augmented|enhances|enhance|enhancing|enhanced','increases'],
+  ['lowers|lower|lowering|lowered|reduces|reduce|reducing|reduced|diminishes|diminish|diminishing|diminished|attenuates|attenuate|attenuating|attenuated','decreases'],
+
+  /* intransitive event verbs; if followed only by an adverb the parser rewrites
+     the canonical relation to has_manner below */
+  ['occurs|occur|occurring|occurred|proceeds|proceed|proceeding|progresses|progress|progressing|progressed|evolves|evolve|evolving|evolved|resolves|resolve|resolving|resolved|heals|heal|healing|recovers|recover|recovering|recovered|diffuses|diffuse|diffusing|migrates|migrate|migrating|moves|move|moving|flows|flow|flowing','has_manner']
+);
+
+
+/* Distinct lexical transport actions. They may share a semantic family, but
+   their written verb is preserved on the edge and shown back to the user. */
+VERBS.unshift(
+  ['transmits|transmit|transmitting|transmitted','transports'],
+  ['exports|export|exporting|exported','transports'],
+  ['imports|import|importing|imported','transports'],
+  ['translocates|translocate|translocating|translocated','transports'],
+  ['shuttles|shuttle|shuttling|shuttled','transports'],
+  ['pumps|pump|pumping|pumped','transports']
+);
+
 /* Every canonical relation name is also a usable verb. The Syntax panel lists
    these as the vocabulary, so "IgG is_a immunoglobulin" has to work — and it is
    what a language model reaches for when asked to use this notation. */
@@ -863,7 +1005,7 @@ async function removeCustomVerb(i){
 /* trailing clause markers → condition type */
 const CONDMARK=[
  ['unless','unless'],['except when','unless'],['except if','unless'],
- ['only if','only_if'],['only when','only_if'],['provided that','only_if'],
+ ['only if','only_if'],['only when','only_if'],['provided that','only_if'],['if','context_dependent'],
  ['requires','requires_cofactor'],['requires cofactor','requires_cofactor'],['needs','requires_cofactor'],
  ['dose dependent','dose_dependent'],['dose-dependent','dose_dependent'],['at high dose','dose_dependent'],['at low dose','dose_dependent'],
  ['context dependent','context_dependent'],['depends on context','context_dependent'],
@@ -885,12 +1027,13 @@ const CLASSES=[
    {k:'cause',label:'Caused by',rel:'causes',flip:true,ask:"What causes **%s**?"},
    {k:'transmission',label:'Transmission',rel:'transmitted_by',ask:"How is **%s** transmitted?"},
    {k:'presents',label:'Presents with',rel:'presents_with',ask:"Which of the following does **%s** present with?"},
-   {k:'risk',label:'Risk factor',rel:'associated_with',flip:true,ask:"Which of the following is a risk factor for **%s**?"},
+   {k:'prodrome',label:'Prodrome / early symptoms',rel:'has_prodrome',ask:"Which of the following occurs in the prodrome of **%s**?"},
+   {k:'risk',label:'Risk factor / predisposition',rel:'predisposes_to',flip:true,ask:"Which of the following predisposes to **%s**?"},
    {k:'dx',label:'Diagnosed by',rel:'indicates',flip:true,ask:"**%s** is diagnosed by which of the following?"},
    {k:'tx',label:'Treated by',rel:'treated_by',ask:"**%s** is treated by which of the following?"},
    {k:'complication',label:'Complication',rel:'causes',ask:"Which of the following is a complication of **%s**?"},
-   {k:'population',label:'Seen in',rel:'seen_in',ask:"**%s** is most often seen in which group?"},
-   {k:'inheritance',label:'Inheritance',rel:'is_a',ask:"What is the inheritance pattern of **%s**?"}]},
+   {k:'population',label:'Typical population / setting',rel:'seen_in',ask:"**%s** is most often seen in which group or setting?"},
+   {k:'inheritance',label:'Inheritance pattern',rel:'has_property',ask:"What is the inheritance pattern of **%s**?"}]},
  {key:'bacterium',label:'Bacterium',color:'#2B6CB0',slots:[
    {k:'morphology',label:'Morphology / stain',rel:'has_property',ask:"What is the morphology of **%s** on stain?"},
    {k:'lab',label:'Lab identification',rel:'has_property',ask:"Which finding identifies **%s** in the laboratory?"},
@@ -905,17 +1048,18 @@ const CLASSES=[
    {k:'genome',label:'Genome / structure',rel:'has_property',ask:"What is the genome structure of **%s**?"},
    {k:'reservoir',label:'Reservoir',rel:'located_in',ask:"What is the reservoir of **%s**?"},
    {k:'transmission',label:'Transmission',rel:'transmitted_by',ask:"How is **%s** transmitted?"},
+   {k:'prodrome',label:'Prodrome / early illness',rel:'has_prodrome',ask:"Which of the following occurs in the prodrome of **%s** infection?"},
    {k:'disease',label:'Causes disease',rel:'causes',ask:"Which disease does **%s** cause?"},
    {k:'tx',label:'Treated by',rel:'treated_by',ask:"**%s** is treated by which of the following?"},
    {k:'vaccine',label:'Prevented by',rel:'prevents',flip:true,ask:"**%s** is prevented by which of the following?"}]},
  {key:'drug',label:'Drug',color:'#0369A1',slots:[
    {k:'class',label:'Drug class',rel:'is_a',ask:"Which drug class does **%s** belong to?"},
-   {k:'target',label:'Target',rel:'inhibits',ask:"What is the molecular target of **%s**?"},
+   {k:'target',label:'Target / site of action',rel:'targets',ask:"What target or site of action does **%s** act on?"},
    {k:'use',label:'Used for',rel:'used_for',ask:"**%s** is used for which of the following?"},
-   {k:'adverse',label:'Side effect',rel:'causes',ask:"Which of the following is a side effect of **%s**?"},
+   {k:'adverse',label:'Adverse effect / side effect',rel:'causes',ask:"Which of the following is an adverse effect of **%s**?"},
    {k:'contra',label:'Contraindicated in',rel:'contraindicated_in',ask:"**%s** is contraindicated in which of the following?"},
-   {k:'interaction',label:'Interacts with',rel:'potentiates',ask:"**%s** interacts with which of the following?"},
-   {k:'resistance',label:'Resistance',rel:'associated_with',ask:"Which mechanism confers resistance to **%s**?"}]},
+   {k:'interaction',label:'Drug interaction',rel:'interacts_with',ask:"**%s** interacts with which of the following?"},
+   {k:'resistance',label:'Resistance mechanism',rel:'associated_with',ask:"Which mechanism is associated with resistance to **%s**?"}]},
 ];
 const clsOf=k=>CLASSES.find(c=>c.key===k)||null;
 function slotOf(clsKey,name){
@@ -1380,6 +1524,24 @@ function splitConditions(text,skip){
   });
   return{base,conds};
 }
+
+/* Leading conditions are equivalent to trailing conditions:
+     if receptor is present, X activates Y
+     X activates Y if receptor is present
+   Bare `if` is context_dependent; `only if` remains only_if. */
+function splitLeadingCondition(text){
+  const surfaces=['provided that','only if','only when','except when','except if','unless','whenever','when','while','if'];
+  for(const surf of surfaces){
+    const re=new RegExp('^'+rx(surf)+'\\s+(.+?)[,;]\\s+(.+)$','i');
+    const m=re.exec(String(text||'').trim());
+    if(!m)continue;
+    const probe=splitConditions('x '+surf+' '+m[1],0);
+    if(!probe.conds.length)continue;
+    return{base:m[2].trim(),conds:probe.conds};
+  }
+  return null;
+}
+
 /* [[double brackets]] or "quotes" make a span opaque, so a verb inside a multi-word
    term cannot be mistaken for the relation. Masked to a token with no whitespace. */
 function maskProtected(text){
@@ -1448,7 +1610,7 @@ function findVerbAll(text){
   const hits=[];
   const push=(a,b,rel,flip,weak,ord,part,surf)=>{
     if(a.length<2||a.length>200||b.length<1||b.length>400)return;
-    hits.push({score:a.length+(weak?40:0)+(part?25:0),a,b,rel,flip,ord,surf});
+    hits.push({score:a.length+(weak?40:0)+(part?25:0),a,b,rel,flip,weak:!!weak,ord,surf});
   };
   _vaRe.lastIndex=0;
   let m;
@@ -1475,10 +1637,84 @@ function findVerbAll(text){
   /* keep the wording that actually matched, so "ferments" is not shown back as
      "metabolizes". Not for a reversed verb: "is caused by" beside a stored
      smoking -> COPD edge would read backwards. */
-  return uniq.map(h=>({rel:h.rel,left:h.a,a:h.flip?h.b:h.a,b:h.flip?h.a:h.b,
-    surf:h.flip?'':(h.surf||'')}));
+  return uniq.map(h=>({rel:h.rel,left:h.a,right:h.b,flip:!!h.flip,weak:!!h.weak,
+    a:h.flip?h.b:h.a,b:h.flip?h.a:h.b,surf:h.surf||''}));
 }
 function findVerb(text){const l=findVerbAll(text);return l.length?l[0]:null}
+
+/* ==================== V12.2 RELATIONSHIP STRUCTURE HELPERS ==================== */
+function strongVerbIn(text){
+  return findVerbAll(String(text||'')).find(v=>!v.weak)||null;
+}
+
+/* "A activates B causes C inhibits D"
+   -> first object = B
+   -> B causes C
+   -> C inhibits D
+   The main parser still owns A activates B, conditions, negation, etc. */
+function splitVerbTailChain(text){
+  let rest=String(text||'').trim(),head=rest;
+  const out=[];
+  for(let guard=0;guard<6;guard++){
+    const v=strongVerbIn(rest);
+    if(!v)break;
+
+    /* Require a real noun phrase before the second verb. This avoids turning
+       prepositional tails such as "with high affinity" into chains. */
+    const textualSubject=String(v.left||'').trim();
+    if(!textualSubject || textualSubject.split(/\s+/).length>10 ||
+       /\b(?:to|of|with|in|on|at|from|by|for|through|during)$/i.test(textualSubject))break;
+
+    if(!out.length)head=textualSubject;
+
+    const rhs=String(v.right||'').trim();
+    const next=strongVerbIn(rhs);
+    const textualObject=String(next?next.left:rhs).trim();
+    if(!textualObject)break;
+
+    out.push({
+      a:normalize(v.flip?textualObject:textualSubject),
+      relation:v.rel,
+      b:normalize(v.flip?textualSubject:textualObject),
+      surf:v.flip?'':(v.surf||'')
+    });
+
+    if(!next)break;
+    rest=rhs;
+  }
+  return out.length?{head:normalize(head),chain:out}:{head:normalize(text),chain:[]};
+}
+
+/* Literal noun-phrase "of".
+   We deliberately store the literal `of` relation rather than pretending every
+   phrase means strict anatomical part-of. For a subject construction:
+      beta sheets of proteins are antiparallel
+   this yields:
+      beta sheets -of-> proteins
+      beta sheets -has_property-> antiparallel
+*/
+function splitOfSubject(text){
+  const s=String(text||'').trim();
+  if((s.match(/\bof\b/gi)||[]).length!==1)return null;
+  const m=s.match(/^(.{1,90}?)\s+of\s+(?:the\s+)?(.{1,110})$/i);
+  if(!m)return null;
+  const x=normalize(m[1]),y=normalize(m[2]);
+  if(!x||!y)return null;
+  const wx=x.split(/\s+/).length,wy=y.split(/\s+/).length;
+  if(wx>8||wy>9)return null;
+  if(/^(one|two|three|some|most|many|few|none|all|half|majority|minority)$/i.test(x))return null;
+  if(hasRel(x)||hasRel(y))return null;
+  return{x,y};
+}
+
+const MANNER_WORD=/^(?:(?:very|more|less|relatively|extremely|progressively|increasingly)\s+)?(?:[a-z][a-z-]*ly|fast|slow|rapid|gradual|abrupt|spontaneous|constitutive|transient|continuous|intermittent|local|systemic)$/i;
+function asMannerRelation(v){
+  if(!v||v.flip||v.weak)return null;
+  const obj=String(v.right||v.b||'').trim();
+  if(!MANNER_WORD.test(obj))return null;
+  return{a:normalize(v.left||v.a),relation:'has_manner',b:normalize(obj),surf:v.surf||''};
+}
+
 /* negation: polarity is a flag on the edge, not a separate relation.
    First matching pattern wins; the replacement keeps the verb parseable. */
 const NEGS=[
@@ -1500,8 +1736,10 @@ const NEGS=[
 const MODAL=/\b(can|could|may|might|will|would|shall|should|must|tends to|tend to|is able to|are able to|is known to|are known to)\s+/i;
 function stripModal(text){
   const m=text.match(MODAL);
-  if(!m)return{text,modal:''};
-  return{text:text.replace(MODAL,'').replace(/\s{2,}/g,' ').trim(),modal:m[1].toLowerCase()};
+  if(!m)return{text,modal:'',modalType:''};
+  const modal=m[1].toLowerCase();
+  const modalType=/^(can|could|may|might|is able to|are able to)$/.test(modal)?'possible':'context_dependent';
+  return{text:text.replace(MODAL,'').replace(/\s{2,}/g,' ').trim(),modal,modalType};
 }
 function stripNeg(text){
   for(const [re,rep] of NEGS){
@@ -1607,8 +1845,10 @@ function parse(text){
     const prot=maskProtected(line);
     line=prot.text;
     const UM=v=>normalize(unmask(v,prot.spans));
+    const leading=splitLeadingCondition(line);
+    if(leading)line=leading.base;
     const first=splitConditions(line,0);
-    let base=first.base,conds=first.conds;
+    let base=first.base,conds=[...(leading?leading.conds:[]),...first.conds];
     if(!hasRel(base)){
       let ok=false;
       for(let skip=1;skip<=3;skip++){
@@ -1651,9 +1891,10 @@ function parse(text){
     }
     const bn=stripNeg(base);base=bn.text;let neg=bn.neg;
     let a,rel,b;
+    let verbChain=[],ofLink=null;
     const arrow=base.match(ARROW);
     if(arrow&&/^[!¬]/.test((arrow[2]||'').trim())){neg=true;arrow[2]=arrow[2].replace(/^[!¬]\s*/,'');}
-    let modalNote='',surfUsed='';
+    let modalNote='',modalType='',surfUsed='';
     if(arrow){
       a=arrow[1];b=arrow[3];
       const want=(arrow[2]||'').trim().replace(/\s+/g,'_').toLowerCase();
@@ -1664,7 +1905,7 @@ function parse(text){
       /* strip the modal BEFORE looking for a verb — otherwise "S. aureus can cause
          endocarditis" parses with "S. aureus can" as the subject */
       const sm=stripModal(base);
-      if(sm.modal&&findVerb(sm.text)){modalNote=sm.modal;base=sm.text}
+      if(sm.modal&&findVerb(sm.text)){modalNote=sm.modal;modalType=sm.modalType||'context_dependent';base=sm.text}
       let v=findVerb(base);
       if(!v){
         /* an invented relation name like "classified_by" should say so, and
@@ -1684,9 +1925,29 @@ function parse(text){
           return;
         }
         issues.push({ln,raw,msg:'No relation verb found. Use :: for a definition, := for a sequence, or A -causes-> B',bad:true});return}
-      a=v.a;rel=v.rel;b=v.b;surfUsed=v.surf||'';
+      const manner=asMannerRelation(v);
+      if(manner){a=manner.a;rel=manner.relation;b=manner.b;surfUsed=manner.surf||'';}
+      else{a=v.a;rel=v.rel;b=v.b;surfUsed=v.surf||'';}
     }
     b=String(b).replace(/^(in|into|onto|during|with|on|at|from|by|among|within|through)\s+/i,'');
+
+    /* Plain-English verb chains do not need => anymore:
+       "X activates Y causes Z" becomes X->Y plus Y->Z. */
+    if(!arrow&&rel!=='has_manner'){
+      const tail=splitVerbTailChain(b);
+      if(tail.chain.length){b=tail.head;verbChain=tail.chain;}
+    }
+
+    /* Subject noun phrase with a literal OF relation. Keep the left noun as the
+       subject of the predicate, and store the OF edge as an additional fact. */
+    if(!arrow){
+      const ofp=splitOfSubject(a);
+      if(ofp){
+        a=ofp.x;
+        ofLink={a:ofp.x,relation:'of',b:ofp.y};
+      }
+    }
+
     /* "bananas appear to be yellow, long, and curved" is three facts, not one node
        called "yellow, long, and curved". Same for an OR list. */
     const splitList=t=>{
@@ -1710,6 +1971,26 @@ function parse(text){
     const alts=arrow?[]:findVerbAll(base).map(o=>UM(o.left)).filter((v,i,arr)=>v&&arr.indexOf(v)===i);
     if(effect)effect.entity=UM(effect.entity);
     conds.forEach(c=>{c.entity=UM(c.entity)});
+
+    const appendAuxV122=()=>{
+      if(ofLink){
+        records.push({type:'rel',ln,a:UM(ofLink.a),relation:'of',b:UM(ofLink.b),neg:false,
+          effect:null,conditions:[],alts:[],derivedStructure:true,...M});
+        issues.push({ln,raw,msg:'recognized “X of Y” as an additional structural relation'});
+      }
+      verbChain.forEach((seg,ci)=>{
+        records.push({type:'rel',ln,a:UM(seg.a),relation:seg.relation,b:UM(seg.b),neg:false,
+          effect:null,conditions:[],alts:[],chained:true,
+          ...(seg.surf&&canon(seg.surf)!==canon(seg.relation.replace(/_/g,' '))?{surf:seg.surf}:{}),...M});
+      });
+      if(verbChain.length)issues.push({ln,raw,msg:`split into ${1+verbChain.length} linked verb facts`});
+    };
+
+    /* Modal possibility belongs to the relationship even when the line later
+       expands into a list or a purpose-clause split. */
+    if(modalNote&&!conds.some(c=>c.note===modalNote&&c.type===(modalType||'context_dependent')))
+      conds.push({type:modalType||'context_dependent',entity:'',note:modalNote});
+
     /* a trailing purpose clause — "escapes the macrophage TO INFECT the gut" —
        is a second fact about the same subject, not part of the object's name */
     const purpose=String(b).match(/^(.+?)\s+to\s+([a-z].+)$/i);
@@ -1720,6 +2001,7 @@ function parse(text){
           effect,conditions:conds,alts:[],...M});
         records.push({type:'rel',ln,a:normalize(v2.a),relation:v2.rel,b:normalize(v2.b),neg:false,
           effect:null,conditions:[],alts:[],...M});
+        appendAuxV122();
         issues.push({ln,raw,msg:'split at "to …" — two facts about the same subject'});
         return;
       }
@@ -1732,9 +2014,9 @@ function parse(text){
       }));
       if(As.length*Bs.length>1)issues.push({ln,raw,
         msg:`expanded into ${As.length*Bs.length} facts — a list on one line`});
+      appendAuxV122();
       return;
     }
-    if(modalNote)conds.push({type:'context_dependent',entity:'',note:modalNote});
     /* "serum calcium is lowered in hypoparathyroidism" is a state with a context,
        not a property whose value happens to be a whole phrase */
     /* "PTH is raised in hyperparathyroidism" parsed as "PTH is" increases
@@ -1778,6 +2060,7 @@ function parse(text){
           const agent=normalize(pas2[2]),subj=UM(a);
           a=info.flip?subj:agent;b=info.flip?agent:subj;
           records.push(last={type:'rel',ln,a,relation:rel,b,neg,effect,conditions:conds,alts,...M});
+          appendAuxV122();
           return;
         }
       }
@@ -1795,6 +2078,7 @@ function parse(text){
     records.push(last={type:'rel',ln,a:UM(a),relation:rel,b:UM(b),neg,effect,conditions:conds,alts,
       ...(surfUsed&&canon(surfUsed)!==canon(rel.replace(/_/g,' '))?{surf:surfUsed}:{}),
       ...(stateInfo?{state:stateInfo}:{}),...M});
+    appendAuxV122();
     /* each further "=>" hangs off the thing before it */
     let prev=effect?effect.entity:UM(b);
     chain.forEach(seg=>{
@@ -1967,6 +2251,13 @@ CD40 ligand binds to CD40 => induces class switch recombination, only if cytokin
   + unless CD40 ligand deficiency: X-linked hyper-IgM, normal or high IgM with absent IgG
 
 hapten is immunogenic only if carrier protein: conjugation required
+cell death occurs slowly
+beta sheets of proteins are antiparallel
+TLR4 activates NF-kB causes cytokine release
+penicillin works if organism is susceptible
+ACE inhibitors may cause cough
+macrophages can export cholesterol
+neurons transmit signals
 
 somatic hypermutation increases antibody affinity
 
@@ -2173,6 +2464,7 @@ function composeHTML(){
         placeholder="AID induces class switch recombination" oninput="onSrc(this.value)"
         onscroll="syncHL()" onmouseup="updateSelBar()" onkeyup="updateSelBar()"
         onselect="updateSelBar()">${esc(src)}</textarea></div>
+      <div id="classkeys" class="classkeys"></div>
       <div class="hllegend">
         <span><span class="hl-term">term you already have</span></span>
         <span><span class="hl-term hl-new">new term</span></span>
@@ -2202,10 +2494,129 @@ function composeHTML(){
     <div class="acbox" id="acbox"></div>
   </div>`;
 }
+
+/* ---- Compose subject-repeat Tab + class slot helper ---- */
+function composeStarterFromLine(line){
+  line=String(line||'').trim();
+  if(!line||/^[-+]/.test(line)||/^[@/#]/.test(line))return '';
+
+  let lead='';
+  if(line.includes('::'))lead=line.split('::')[0];
+  else if(line.includes(':='))lead=line.split(':=')[0];
+  else{
+    const ar=ARROW.exec(line);
+    if(ar)lead=ar[1];
+    else{
+      const h=findVerb(line);
+      if(h)lead=h.left;
+    }
+  }
+  lead=String(lead||'')
+    .replace(/\s+\[[a-z][a-z0-9_-]*\]\s*$/i,'')
+    .replace(/\s+\([^()]*(?:,\s*[^()]*)*\)\s*$/,'')
+    .replace(/\s+/g,' ').trim();
+  return lead;
+}
+function composePreviousStarter(ta){
+  const v=ta.value,c=ta.selectionStart;
+  const before=v.slice(0,c),lines=before.split('\n');
+  /* Current line first; if it is a continuation/blank, walk upward. */
+  for(let i=lines.length-1;i>=0;i--){
+    const lead=composeStarterFromLine(lines[i]);
+    if(lead)return lead;
+  }
+  return '';
+}
+function composeTabNextLine(e){
+  if(e.key!=='Tab'||e.shiftKey||e.altKey||e.ctrlKey||e.metaKey)return false;
+  const ta=e.currentTarget||document.getElementById('src');
+  if(!ta||ta.selectionStart!==ta.selectionEnd)return false;
+
+  const c=ta.selectionStart,v=ta.value;
+  const lineEnd=v.indexOf('\n',c);
+  /* Only hijack Tab at the end of a line; inside a line Tab remains available
+     to the browser/keyboard rather than unexpectedly restructuring text. */
+  if(lineEnd!==-1 && /\S/.test(v.slice(c,lineEnd)))return false;
+
+  const lead=composePreviousStarter(ta);
+  if(!lead)return false;
+
+  e.preventDefault();
+  const ins='\n'+lead+' ';
+  ta.value=v.slice(0,c)+ins+v.slice(c);
+  const nc=c+ins.length;
+  ta.setSelectionRange(nc,nc);
+  onSrc(ta.value);
+  acClose();
+  setTimeout(()=>{classKeysUpdate();updateSelBar()},0);
+  return true;
+}
+function composeClassAtCaret(ta){
+  if(!ta)return null;
+  const v=ta.value,c=ta.selectionStart;
+  const ls=v.lastIndexOf('\n',c-1)+1,le=v.indexOf('\n',c);
+  const line=v.slice(ls,le<0?v.length:le);
+
+  let m=line.match(/\[([a-z]+)\]/i);
+  if(m&&clsOf(m[1].toLowerCase()))return clsOf(m[1].toLowerCase());
+
+  /* Also react while the user literally types "disease", "drug", etc. */
+  const keys=CLASSES.map(x=>x.key).join('|');
+  m=line.match(new RegExp('(?:^|\\s)('+keys+')\\s*$','i'));
+  if(m)return clsOf(m[1].toLowerCase());
+
+  /* On an indented slot line, inherit the nearest classed definition above. */
+  if(/^\s+/.test(line)){
+    const prior=v.slice(0,ls).split('\n').reverse();
+    for(const p of prior){
+      if(!p.trim())continue;
+      const mm=p.match(/\[([a-z]+)\]/i);
+      if(mm&&clsOf(mm[1].toLowerCase()))return clsOf(mm[1].toLowerCase());
+      if(p.includes('::'))break;
+    }
+  }
+  return null;
+}
+function insertClassSlot(k){
+  const ta=document.getElementById('src');if(!ta)return;
+  const c=ta.selectionStart,v=ta.value,ls=v.lastIndexOf('\n',c-1)+1,
+        le=v.indexOf('\n',c),line=v.slice(ls,le<0?v.length:le);
+
+  let ins;
+  if(/\[([a-z]+)\]/i.test(line)&&line.includes('::'))ins=`\n  ${k}: `;
+  else if(/^\s*$/.test(line))ins=`${k}: `;
+  else if(/^\s+/.test(line)&&!/:\s*/.test(line))ins=`${k}: `;
+  else ins=`\n  ${k}: `;
+
+  ta.value=v.slice(0,c)+ins+v.slice(c);
+  const nc=c+ins.length;
+  ta.setSelectionRange(nc,nc);ta.focus();
+  onSrc(ta.value);
+  setTimeout(classKeysUpdate,0);
+}
+function classKeysUpdate(){
+  const ta=document.getElementById('src'),box=document.getElementById('classkeys');
+  if(!ta||!box)return;
+  const C=composeClassAtCaret(ta);
+  if(!C){box.classList.remove('show');box.innerHTML='';return}
+  box.classList.add('show');
+  box.innerHTML=`<span class="cklabel">${esc(C.label)} fields</span>`+
+    C.slots.map(sl=>`<button type="button" title="${esc(relUI(sl.rel))}" onclick="insertClassSlot('${sl.k}')">${esc(sl.k)} · ${esc(sl.label)}</button>`).join('');
+}
+
 /* ---- inline completion ----
    Suggests node terms, relation verbs, class names and slot names as you type.
    Tab or Enter accepts, arrows move, Escape dismisses. */
 let AC={open:false,items:[],sel:0,from:0,to:0};
+
+function verbSurfaceOK(f){
+  const s=String(f||'').toLowerCase();
+  if(!s||s.length>55)return false;
+  /* Artifacts from the old mechanical past-tense generator. */
+  if(/\b(?:developsed|gainsed|obtainsed|underlainsed|underlied|seedsed|exitsed|colonisesed|infectsed|surroundsed|bordersed|perfusesed|containsed|endocytosesed|engulfsed|hadded|hassed|haved|internalisesed|phagocytosesed|possessesed|absorbsed|adsorbsed|bindsed|fixessed|recognisesed|recruitsed|causessed|digestsed|lysessed|usessed|metabolisesed|crossesed|transportsed|blocksed|destroysed|inhibitsed|killsed|suppressesed|increasesed|decreasesed|drived|lowerring|lowerred|impairring|impairred|mimiccing|mimicced|revealling|revealled)\b/.test(s))return false;
+  return true;
+}
+
 function acCandidates(){
   const out=[];
   G.defs.forEach(d=>{
@@ -2213,7 +2624,7 @@ function acCandidates(){
     (d.aliases||[]).forEach(a=>out.push({t:a,k:'alias',d:d.term}));
   });
   VERBS.forEach(([surf,rel,flip])=>surf.split('|').forEach(f=>{
-    if(f.length>2)out.push({t:f,k:'verb',d:rel+(flip?' ←':'')});
+    if(f.length>2&&verbSurfaceOK(f))out.push({t:f,k:'verb',d:relUI(rel)+(flip?' · reversed':'')});
   }));
   CONDMARK.forEach(([surf,type])=>out.push({t:surf,k:'cond',d:type}));
   /* include terms defined in the editor but not yet committed */
@@ -2339,11 +2750,14 @@ function acAccept(i){
   src=ta.value;parsed=parse(src);paintPreview();
 }
 function acKey(e){
-  if(!AC.open)return;
-  if(e.key==='ArrowDown'){e.preventDefault();AC.sel=(AC.sel+1)%AC.items.length;acPaint()}
-  else if(e.key==='ArrowUp'){e.preventDefault();AC.sel=(AC.sel-1+AC.items.length)%AC.items.length;acPaint()}
-  else if(e.key==='Tab'||e.key==='Enter'){e.preventDefault();acAccept()}
-  else if(e.key==='Escape'){e.preventDefault();acClose()}
+  if(AC.open){
+    if(e.key==='ArrowDown'){e.preventDefault();AC.sel=(AC.sel+1)%AC.items.length;acPaint()}
+    else if(e.key==='ArrowUp'){e.preventDefault();AC.sel=(AC.sel-1+AC.items.length)%AC.items.length;acPaint()}
+    else if(e.key==='Tab'||e.key==='Enter'){e.preventDefault();acAccept()}
+    else if(e.key==='Escape'){e.preventDefault();acClose()}
+    return;
+  }
+  composeTabNextLine(e);
 }
 function initCompose(){
   const ta=document.getElementById('src');if(!ta)return;
@@ -2352,12 +2766,14 @@ function initCompose(){
   if(sz)sz.textContent=`${src.length.toLocaleString()} characters · ${src?src.split('\n').length:0} lines`;
   paintHL();
   ta.addEventListener('keydown',acKey);
-  ta.addEventListener('input',()=>setTimeout(acUpdate,0));
-  ta.addEventListener('click',acClose);
+  ta.addEventListener('input',()=>setTimeout(()=>{acUpdate();classKeysUpdate()},0));
+  ta.addEventListener('click',()=>{acClose();classKeysUpdate()});
   document.querySelectorAll('[id^="av-"]').forEach(sel=>sel.addEventListener('change',()=>{
     const f=document.getElementById(sel.id.replace('av-','avf-'));
     if(f)f.style.display=sel.value==='__new__'?'':'none';
   }));
+  ta.addEventListener('keyup',classKeysUpdate);
+  classKeysUpdate();
   ta.addEventListener('blur',()=>setTimeout(acClose,150));
 }
 /* ---- highlight-to-act, compose editor ---- */
@@ -2748,7 +3164,7 @@ function previewCard(r){
       ${(r.slots||[]).length?`<div class="slots">${C.slots.filter(sl=>r.slots.some(x=>x.k===sl.k)).map(sl=>
         `<div class="slotrow"><span class="slotk">${esc(sl.label)}</span>
          <span>${r.slots.filter(x=>x.k===sl.k).map(x=>`<span class="node" style="border-color:${famOf(sl.rel).color}">${esc(x.value)}</span>`).join(' ')}</span>
-         <span class="slotrel mono">${esc(sl.rel)}</span></div>`).join('')}</div>`:''}
+         <span class="slotrel mono">${esc(relUI(sl.rel))}</span></div>`).join('')}</div>`:''}
       ${r.aliases.length?`<div class="mono" style="font-size:12px;color:var(--muted)">${esc(r.aliases.join(' · '))}</div>`:''}
       ${r.features.map((f,i)=>`<p class="feat">${markupFeature(f,r.term,key+'_'+i)}</p>`).join('')}
       <div class="tagrow">${r.system?`<span class="tag">${esc(r.system)}</span>`:''}${r.topic?`<span class="tag">${esc(r.topic)}</span>`:''}${r.tags.map(t=>`<span class="tag">#${esc(t)}</span>`).join('')}</div>
@@ -2766,7 +3182,7 @@ function previewCard(r){
   return `<div class="triple pending ${r.neg?'negated':''}"><div class="fambar" style="background:${r.neg?'#B91C1C':f.color}"></div>
     <div class="row">${pNode(r.rA)}
       ${r.neg?'<span class="negpill">NOT</span>':''}
-      <span class="arrow ${sym?'sym':''} ${r.neg?'neg':''}" style="color:${r.neg?'#B91C1C':f.color}"><span class="rel">${esc(r.relation)}</span><span class="line"></span></span>
+      <span class="arrow ${sym?'sym':''} ${r.neg?'neg':''}" style="color:${r.neg?'#B91C1C':f.color}"><span class="rel" title="${esc(relUI(r.relation))}">${esc(noteVerb(r))}</span><span class="line"></span></span>
       ${pNode(r.rB)}
       <span class="eyebrow" style="margin-left:auto">${esc(f.label)}</span></div>
     ${r.effect?`<div class="yields"><span class="yl">yields</span>
@@ -3152,7 +3568,7 @@ function syntaxHTML(){
   const clsRows=CLASSES.map(c=>{
     if(q&&![c.key,...c.slots.map(s=>s.k)].some(hit))return '';
     return `<tr><td><span class="mono" style="color:${c.color}">[${mark(c.key)}]</span></td>
-      <td>${c.slots.map(sl=>`<span class="mono">${mark(sl.k)}</span><span class="hint" style="margin:0"> → ${esc(sl.rel)}${sl.flip?' ←':''}</span>`).join(' · ')}</td></tr>`;
+      <td>${c.slots.map(sl=>`<span class="mono">${mark(sl.k)}</span><span class="hint" style="margin:0"> → ${esc(relUI(sl.rel))}${sl.flip?' ←':''}</span>`).join(' · ')}</td></tr>`;
   }).filter(Boolean).join('');
   return `<div class="panel">
     <div class="panel-h"><h2>Syntax</h2>
@@ -3315,7 +3731,7 @@ function tripleHTML(r){
   return `<div class="triple ${r.neg?'negated':''}"><div class="fambar" style="background:${r.neg?'#B91C1C':f.color}"></div>
     <div class="row">${nodeChip(r.aId)}
       ${r.neg?'<span class="negpill">NOT</span>':''}
-      <span class="arrow ${sym?'sym':''} ${r.neg?'neg':''}" style="color:${r.neg?'#B91C1C':f.color}"><span class="rel">${esc(r.relation)}</span><span class="line"></span></span>
+      <span class="arrow ${sym?'sym':''} ${r.neg?'neg':''}" style="color:${r.neg?'#B91C1C':f.color}"><span class="rel" title="${esc(relUI(r.relation))}">${esc(noteVerb(r))}</span><span class="line"></span></span>
       ${nodeChip(r.bId)}
       <span style="margin-left:auto;display:flex;gap:6px">
         <button class="mini" title="swap the two ends of this edge" onclick="swapRel('${r.id}')">&#8646; swap</button>
@@ -3334,7 +3750,7 @@ async function swapRel(id){
   const r=G.rels.find(x=>x.id===id);if(!r)return;
   const a=r.aId;r.aId=r.bId;r.bId=a;
   await save();refresh();render();
-  toast(`Now reads: ${termOf(r.aId)} ${r.relation} ${termOf(r.bId)}`);
+  toast(`Now reads: ${termOf(r.aId)} ${noteVerb(r)} ${termOf(r.bId)}`);
 }
 async function delRel(id){G.rels=G.rels.filter(r=>r.id!==id);await save();refresh();render();}
 /* Anything true of an ancestor is true of its descendants. Those facts are not
@@ -3435,7 +3851,7 @@ function classCard(d){
       <span>${f.ids.length?f.ids.map(i=>nodeChip(i)).join(' ')
         :(f.from.length?f.from.slice(0,3).map(x=>`${nodeChip(x.other)}<span class="hint" style="margin:0 0 0 5px">via ${esc(termOf(x.via))}</span>`).join(' ')
         :`<button class="slotadd" onclick="seedSlot('${d.id}','${f.sl.k}')">+ add</button>`)}</span>
-      <span class="slotrel mono">${esc(f.sl.rel)}${f.sl.flip?' ←':''}</span></div>`).join('')}</div>`;
+      <span class="slotrel mono">${esc(relUI(f.sl.rel))}${f.sl.flip?' ←':''}</span></div>`).join('')}</div>`;
 }
 function seedSlot(id,k){
   const d=byId(id);if(!d)return;
@@ -3466,7 +3882,7 @@ function formDef(id){
   return `<div class="panel"><div class="panel-h"><span style="width:10px;height:10px;border-radius:50%;background:#12171C"></span>
     <h2>${d?'Edit definition':'New definition'}</h2>
     <button class="mini" style="margin-left:auto" onclick="openCompose()">Use compose instead</button></div>
-    <div class="fld"><label class="eyebrow">Term</label><input id="d-term" value="${esc(d?d.term:'')}"></div>
+    <div class="fld"><label class="eyebrow">Term</label><input id="d-term" value="${esc(d?d.term:'')}">${d?'<div class="hint">Renaming keeps the same node ID, so edges and whiteboard links stay attached. The old name is kept as an alias.</div>':''}</div>
     <div class="grid2">
       <div class="fld"><label class="eyebrow">Aliases</label><input id="d-alias" value="${esc(d?(d.aliases||[]).join(', '):'')}"></div>
       <div class="fld"><label class="eyebrow">Class</label>
@@ -3519,18 +3935,57 @@ function resolveBrackets(text,meta){
   });
   return links;
 }
+
+function renameStatKey(oldTerm,newTerm,key){
+  const oldC=canon(oldTerm),newC=canon(newTerm);
+  if(!oldC||oldC===newC)return key;
+  const m=String(key||'').match(/^([^:]+):(.*)$/);
+  if(!m)return key;
+  const kind=m[1],parts=m[2].split('\u00bb');
+
+  let positions=[];
+  if(['rel','relr','neg','cond'].includes(kind))positions=[0,2];
+  else if(['slot','def','tax'].includes(kind))positions=[0];
+  else return key; /* sequence keys are sequence-name based, not node-name based */
+
+  positions.forEach(i=>{if(parts[i]===oldC)parts[i]=newC});
+  return kind+':'+parts.join('\u00bb');
+}
+function migrateQuestionStatsForRename(oldTerm,newTerm){
+  if(!G.stats||canon(oldTerm)===canon(newTerm))return;
+  const next={};
+  Object.entries(G.stats).forEach(([k,v])=>{
+    const nk=renameStatKey(oldTerm,newTerm,k),cur=next[nk];
+    if(!cur)next[nk]={...v};
+    else{
+      next[nk]={
+        seen:Math.max(cur.seen||0,v.seen||0),
+        right:Math.max(cur.right||0,v.right||0),
+        wrong:Math.max(cur.wrong||0,v.wrong||0),
+        last:Math.max(cur.last||0,v.last||0)
+      };
+    }
+  });
+  G.stats=next;
+}
+
 async function saveDef(id){
   const term=document.getElementById('d-term').value.trim();if(!term)return toast('Term required');
+  const oldTerm=id&&byId(id)?byId(id).term:'';
   const feats=dFeats.map(t=>t.trim()).filter(Boolean).map(text=>({text,links:resolveBrackets(text)}));
+  let aliases=document.getElementById('d-alias').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const renamed=!!(id&&oldTerm&&canon(oldTerm)!==canon(term));
+  if(renamed&&!aliases.some(a=>canon(a)===canon(oldTerm))&&canon(oldTerm)!==canon(term))aliases.unshift(oldTerm);
+  aliases=[...new Map(aliases.map(a=>[canon(a),a])).values()].filter(a=>canon(a)!==canon(term));
   const rec={term,cls:(document.getElementById('d-cls')||{value:''}).value,
-    aliases:document.getElementById('d-alias').value.split(',').map(s=>s.trim()).filter(Boolean),
+    aliases,
     system:document.getElementById('d-sys').value.trim(),topic:document.getElementById('d-top').value.trim(),
     tags:document.getElementById('d-tags').value.split(',').map(s=>s.trim()).filter(Boolean),features:feats,stub:!feats.length};
-  if(id){Object.assign(byId(id),rec);selected=id}
+  if(id){Object.assign(byId(id),rec);if(renamed)migrateQuestionStatsForRename(oldTerm,term);selected=id}
   else{const ex=resolve(term);if(ex.exists){Object.assign(byId(ex.id),rec);selected=ex.id}else{const n={id:uid('def'),created:Date.now(),...rec};G.defs.push(n);bump();selected=n.id}}
   const back=relinkAll();
   await save();view={mode:'browse'};refresh();render();
-  toast('Saved'+(back?` · ${back} earlier mention${back>1?'s':''} linked up`:''));
+  toast((renamed?'Renamed · connections preserved · old name kept as alias':'Saved')+(back?` · ${back} earlier mention${back>1?'s':''} linked up`:''));
 }
 async function delDef(id){
   if(!confirm('Delete this node? Edges referencing it are removed too.'))return;
@@ -3584,7 +4039,7 @@ function formRel(id){
     ${pickerHTML('A','Entity A')}
     <div class="fld"><label class="eyebrow">Relation</label>
       <div class="relbar"><span class="swatch" style="background:${rNeg?'#B91C1C':f.color}"></span>
-      <select onchange="rRel=this.value;render()">${FAMILIES.map(fm=>`<optgroup label="${fm.label}">${fm.rels.map(x=>`<option ${x===rRel?'selected':''}>${x}</option>`).join('')}</optgroup>`).join('')}</select></div>
+      <select onchange="rRel=this.value;render()">${FAMILIES.map(fm=>`<optgroup label="${fm.label}">${fm.rels.map(x=>`<option value="${x}" ${x===rRel?'selected':''}>${esc(relUI(x))}</option>`).join('')}</optgroup>`).join('')}</select></div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
         <button class="mini ${rNeg?'on':''}" style="${rNeg?'background:#B91C1C;border-color:#B91C1C;color:#fff':''}" onclick="rNeg=!rNeg;render()">${rNeg?'NOT — negated':'assert as negative'}</button>
         <span class="hint" style="margin:0">${esc(f.label)}${SYMMETRIC.has(rRel)?' · symmetric':' · directional A → B'}</span>
@@ -3594,7 +4049,7 @@ function formRel(id){
     <div class="sect"><span class="eyebrow">Effect</span><span class="ln"></span><button class="mini ${rHasEffect?'on':''}" onclick="rHasEffect=!rHasEffect;render()">${rHasEffect?'remove':'+ add'}</button></div>
     ${rHasEffect?`<div class="grid2"><div class="fld"><label class="eyebrow">Effect relation</label>
       <div class="relbar"><span class="swatch" style="background:${famOf(rEffRel).color}"></span>
-      <select onchange="rEffRel=this.value;render()">${ALL_RELS.slice().sort().map(x=>`<option ${x===rEffRel?'selected':''}>${x}</option>`).join('')}</select></div></div>
+      <select onchange="rEffRel=this.value;render()">${ALL_RELS.slice().sort().map(x=>`<option value="${x}" ${x===rEffRel?'selected':''}>${esc(relUI(x))}</option>`).join('')}</select></div></div>
       ${pickerHTML('E','Effect entity')}</div>`:''}
     <div class="sect"><span class="eyebrow">Conditions</span><span class="ln"></span><button class="mini" onclick="rConds.push({type:'unless',entityId:null,note:''});render()">+ condition</button></div>
     ${rConds.map((c,i)=>`<div class="panel" style="padding:12px 14px;background:var(--surface2)">
@@ -3632,7 +4087,7 @@ async function saveRel(id){
    Typed edges, class slots, conditions, negations and sequences each imply a
    question shape, and distractors are drawn from nodes that play the SAME role
    elsewhere in the graph — which is what makes them plausible rather than silly. */
-const RELPHRASE={required_for:'is required for',is_part_of:'is part of',composed_of:'is composed of',
+const RELPHRASE={of:'is related by “of” to',has_manner:'occurs in the manner',has_prodrome:'has a prodrome including',targets:'targets',interacts_with:'interacts with',required_for:'is required for',is_part_of:'is part of',composed_of:'is composed of',
  located_in:'is located in',is_a:'is a type of',subtype_of:'is a subtype of',member_of:'is a member of',
  has_property:'has the property',binds_to:'binds to',has_affinity_for:'has affinity for',
  receptor_for:'is the receptor for',ligand_for:'is the ligand for',substrate_of:'is a substrate of',
@@ -3642,8 +4097,86 @@ const RELPHRASE={required_for:'is required for',is_part_of:'is part of',composed
  resistant_to:'is resistant to',similar_to:'is similar to',opposite_of:'is the opposite of',
  derived_from:'is derived from',deficient_in:'is deficient in',inside_of:'is inside',outside_of:'is outside'};
 /* the wording on an edge: what you wrote if it was recorded, else the canonical */
-const said=(r,rel)=>(r&&r.surf)?r.surf:phrase(rel||(r&&r.relation));
-const phrase=r=>RELPHRASE[r]||r.replace(/_to$/,' to').replace(/_/g,' ');
+const said=(r,rel)=>(r&&r.surf)?noteVerb(r):phrase(rel||(r&&r.relation));
+const phrase=r=>RELPHRASE[r]||relUI(r);
+
+/* The relation key is the graph's semantic category; the displayed verb is the
+   lexical action from the note whenever we have it. This prevents:
+      exports -> "transports"
+      transmits -> "transports"
+   from looking identical in notes/cards.
+
+   The original `surf` remains stored exactly as parsed. `noteVerb()` only creates
+   a compact human-facing lemma for presentation. */
+const VERB_LEMMA_EXACT=new Map(Object.entries({
+  'exports':'export','exported':'export','exporting':'export',
+  'imports':'import','imported':'import','importing':'import',
+  'transports':'transport','transported':'transport','transporting':'transport',
+  'transmits':'transmit','transmitted':'transmit','transmitting':'transmit',
+  'transmitted by':'transmit','is transmitted by':'transmit','are transmitted by':'transmit',
+  'transmitted via':'transmit','is transmitted via':'transmit','are transmitted via':'transmit',
+  'translocates':'translocate','translocated':'translocate','translocating':'translocate',
+  'shuttles':'shuttle','shuttled':'shuttle','shuttling':'shuttle',
+  'pumps':'pump','pumped':'pump','pumping':'pump',
+  'carries':'carry','carried':'carry','carrying':'carry',
+  'secretes':'secrete','secreted':'secrete','secreting':'secrete',
+  'releases':'release','released':'release','releasing':'release',
+  'expresses':'express','expressed':'express','expressing':'express',
+  'produces':'produce','produced':'produce','producing':'produce',
+  'synthesizes':'synthesize','synthesized':'synthesize','synthesizing':'synthesize',
+  'activates':'activate','activated':'activate','activating':'activate',
+  'inhibits':'inhibit','inhibited':'inhibit','inhibiting':'inhibit',
+  'binds to':'bind','bound to':'bind','binding to':'bind',
+  'causes':'cause','caused':'cause','caused by':'cause','is caused by':'cause',
+  'leads to':'lead to','led to':'lead to','leading to':'lead to',
+  'results in':'result in','resulted in':'result in','resulting in':'result in',
+  'results from':'result from','resulted from':'result from','resulting from':'result from',
+  'occurs':'occur','occurred':'occur','occurring':'occur',
+  'proceeds':'proceed','proceeded':'proceed','proceeding':'proceed',
+  'progresses':'progress','progressed':'progress','progressing':'progress',
+  'differentiates into':'differentiate into','differentiated into':'differentiate into',
+  'is treated by':'treat','treated by':'treat','treats':'treat','treated':'treat',
+  'is diagnosed by':'diagnose','diagnosed by':'diagnose',
+  'is detected by':'detect','detected by':'detect',
+  'is supplied by':'supply','supplied by':'supply',
+  'is innervated by':'innervate','innervated by':'innervate'
+}));
+function noteVerbFromSurface(surf){
+  let s=String(surf||'').trim().toLowerCase().replace(/\s+/g,' ');
+  if(!s)return'';
+  if(VERB_LEMMA_EXACT.has(s))return VERB_LEMMA_EXACT.get(s);
+
+  /* Strip only grammatical helpers, not meaningful particles such as "to",
+     "through", "with", or "from". */
+  s=s.replace(/^(?:is|are|was|were|be|been|being)\s+/,'');
+  if(VERB_LEMMA_EXACT.has(s))return VERB_LEMMA_EXACT.get(s);
+
+  /* Conservative one-word English lemmatization for presentation only. */
+  if(!s.includes(' ')){
+    if(/ies$/.test(s)&&s.length>4)return s.slice(0,-3)+'y';
+    if(/ied$/.test(s)&&s.length>4)return s.slice(0,-3)+'y';
+    if(/ing$/.test(s)&&s.length>5){
+      let x=s.slice(0,-3);
+      if(/([bcdfghjklmnpqrstvwxyz])\1$/.test(x))x=x.slice(0,-1);
+      if(/(?:at|it|iz)$/.test(x))x+='e';
+      return x;
+    }
+    if(/ed$/.test(s)&&s.length>4){
+      let x=s.slice(0,-2);
+      if(/([bcdfghjklmnpqrstvwxyz])\1$/.test(x))x=x.slice(0,-1);
+      if(/(?:at|it|iz)$/.test(x))x+='e';
+      return x;
+    }
+    if(/es$/.test(s)&&s.length>4)return s.slice(0,-2);
+    if(/s$/.test(s)&&!/(ss|us|is)$/.test(s)&&s.length>3)return s.slice(0,-1);
+  }
+  return s;
+}
+function noteVerb(r){
+  const lexical=noteVerbFromSurface(r&&r.surf);
+  return lexical||relUI(r&&r.relation);
+}
+
 
 let QB={on:false,setup:true,qs:[],i:0,answers:{},n:10,sys:'',top:'',tag:'',weak:true,
         kinds:{rel:true,slot:true,def:true,neg:true,cond:true,seq:true,tax:true}};
@@ -3790,7 +4323,7 @@ function qbBuild(){
   const ok=id=>{const d=byId(id);return d&&qbPass(d)};
   const add=(key,kind,make)=>specs.push({key,kind,make});
 
-  if(QK.rel)G.rels.filter(r=>!r.neg&&ok(r.aId)&&ok(r.bId)).forEach(r=>{
+  if(QK.rel)G.rels.filter(r=>!r.neg&&r.relation!=='of'&&ok(r.aId)&&ok(r.bId)).forEach(r=>{
     add(QK.rel(r),r.relation==='has_state'?'State':'Relationship',()=>{
       if(r.relation==='has_state'){
         /* the opposite state is a guaranteed wrong answer and the sharpest
@@ -3812,20 +4345,22 @@ function qbBuild(){
       return mkq({key:QK.rel(r),relId:r.id,fwd:true,kind:'Relationship',
         stem:r.relation==='has_property'
           ?`Which of the following is a property of **${termOf(r.aId)}**?`
-          :`**${termOf(r.aId)}** ${said(r)} which of the following?`,
+          :r.relation==='has_manner'
+            ?`How does **${termOf(r.aId)}** occur / proceed?`
+            :`**${termOf(r.aId)}** ${said(r)} which of the following?`,
         subject:termOf(r.aId),answer:termOf(r.bId),
         wrong:qbDistract(r.bId,4,peers,id=>alsoTrue(r.aId,r.relation,id)||nbrOf(r.aId).has(id)
           ||derivable(r.aId,r.relation,id)||inherited(r.aId,r.relation,id,'out')).map(termOf),
-        why:`${termOf(r.aId)} —[${r.relation}]→ ${termOf(r.bId)}`,nodes:[r.aId,r.bId]});
+        why:`${termOf(r.aId)} —[${noteVerb(r)}]→ ${termOf(r.bId)}`,nodes:[r.aId,r.bId]});
     });
-    if(r.relation!=='has_state')add(QK.relr(r),'Relationship',()=>{
+    if(!['has_state','has_manner'].includes(r.relation))add(QK.relr(r),'Relationship',()=>{
       const peersA=G.rels.filter(x=>x.relation===r.relation&&x.id!==r.id&&!x.neg).map(x=>x.aId);
       return mkq({key:QK.relr(r),relId:r.id,fwd:false,kind:'Relationship',
         stem:`Which of the following ${said(r)} **${termOf(r.bId)}**?`,
         subject:termOf(r.bId),answer:termOf(r.aId),
         wrong:qbDistract(r.aId,4,peersA,id=>alsoTrue(id,r.relation,r.bId)||nbrOf(r.bId).has(id)
           ||derivable(id,r.relation,r.bId)||inherited(r.bId,r.relation,id,'in')).map(termOf),
-        why:`${termOf(r.aId)} —[${r.relation}]→ ${termOf(r.bId)}`,nodes:[r.aId,r.bId]});
+        why:`${termOf(r.aId)} —[${noteVerb(r)}]→ ${termOf(r.bId)}`,nodes:[r.aId,r.bId]});
     });
   });
 
@@ -3871,7 +4406,7 @@ function qbBuild(){
       return mkq({key:QK.neg(r),kind:'Negation',
         stem:`Which of the following does **${termOf(r.aId)}** **NOT** ${said(r)}?`,
         subject:termOf(r.aId),answer:termOf(r.bId),wrong:shuffle(truth).slice(0,4).map(termOf),
-        why:`The graph records this as a negative: ${termOf(r.aId)} does NOT ${r.relation} ${termOf(r.bId)}`,
+        why:`The graph records this as a negative: ${termOf(r.aId)} does NOT ${noteVerb(r)} ${termOf(r.bId)}`,
         nodes:[r.aId,r.bId]});
     });
   });
@@ -3975,7 +4510,7 @@ async function qbClaim(){
   (q.nodes||[]).forEach(id=>{const n=G.nodeStats[id];if(n){n.wrong=Math.max(0,n.wrong-1);n.right++}});
   q.options[pick].ok=true;
   await save();refresh();render();
-  toast(`Added: ${termOf(a)} ${r.relation} ${termOf(b)}`);
+  toast(`Added: ${termOf(a)} ${noteVerb(r)} ${termOf(b)}`);
 }
 function qbNext(d){QB.i=Math.max(0,Math.min(QB.qs.length,QB.i+d));PAD.hover=null;render()}
 function qbRetryMissed(){
@@ -4929,7 +5464,7 @@ function seqWhyWrong(centerId,o){
   if(!same.length&&other.length)rows.push(`<div><span class="eyebrow">what ${esc(termOf(o.other))} is actually connected to</span><br>
     ${other.map(r=>`<span class="mono" style="font-size:12.5px">
       <span class="lnk" onclick="pick('${r.aId}')">${esc(termOf(r.aId))}</span>
-      —[${esc(r.relation)}]→
+      —[${esc(noteVerb(r))}]→
       <span class="lnk" onclick="pick('${r.bId}')">${esc(termOf(r.bId))}</span></span>`).join('<br>')}</div>`);
   const path=seqPath(centerId,o.other,4);
   if(path&&path.length){
@@ -5164,7 +5699,7 @@ let vig=null,vigPick=null,vigBusy=false;
 function openVig(){view={mode:'vig'};render();}
 function factList(){
   const out=[];
-  G.rels.forEach(r=>out.push({id:r.id,kind:'relationship',system:r.system,topic:r.topic,tags:r.tags||[],label:`${termOf(r.aId)} ${r.neg?'NOT ':''}${r.relation} ${termOf(r.bId)}`}));
+  G.rels.forEach(r=>out.push({id:r.id,kind:'relationship',system:r.system,topic:r.topic,tags:r.tags||[],label:`${termOf(r.aId)} ${r.neg?'NOT ':''}${noteVerb(r)} ${termOf(r.bId)}`}));
   G.defs.filter(d=>!d.stub&&(d.features||[]).length).forEach(d=>out.push({id:d.id,kind:'definition',system:d.system,topic:d.topic,tags:d.tags||[],label:d.term}));
   G.seqs.forEach(s=>out.push({id:s.id,kind:'sequence',system:s.system,topic:s.topic,tags:s.tags||[],label:s.name}));
   return out;
@@ -5176,7 +5711,8 @@ function serialize(f){
   if(f.kind==='sequence'){const s=G.seqs.find(x=>x.id===f.id);
     return `SEQUENCE — ${s.name}\n`+s.steps.map(st=>`  ${st.order}. ${clean(st.event)}`).join('\n');}
   const r=G.rels.find(x=>x.id===f.id);
-  let t=`RELATIONSHIP — ${termOf(r.aId)} —[${r.neg?'DOES NOT ':''}${r.relation}]→ ${termOf(r.bId)}`;
+  let t=`RELATIONSHIP — ${termOf(r.aId)} —[${r.neg?'DOES NOT ':''}${noteVerb(r)}]→ ${termOf(r.bId)}`;
+  t+=`\n  semantic relation: ${r.relation}`;
   if(r.neg)t+=`\n  POLARITY: NEGATIVE. The graph asserts this relation does NOT hold. Do not invert this; a correct item may use it as a distractor or test the absence directly.`;
   if(r.effect&&r.effect.entityId)t+=`\n  effect: ${r.effect.neg?'does NOT ':''}${r.effect.relation} ${termOf(r.effect.entityId)}`;
   (r.conditions||[]).forEach(c=>t+=`\n  condition (${c.type}): ${c.entityId?termOf(c.entityId):''}${c.note?' — '+c.note:''}`);
@@ -5939,12 +6475,8 @@ function ensureWhiteboardModuleV11(){
   if(WB_MODULE_READY_V11)return Promise.resolve(true);
   if(WB_MODULE_PROMISE_V11)return WB_MODULE_PROMISE_V11;
   WB_MODULE_PROMISE_V11=new Promise((resolve,reject)=>{
-    const s=document.createElement('script');
-    s.src='./whiteboard-module.js?v=11.3';
-    s.async=true;
-    s.onload=()=>{WB_MODULE_READY_V11=true;resolve(true)};
-    s.onerror=()=>{WB_MODULE_PROMISE_V11=null;reject(new Error('Could not load Whiteboard module'))};
-    document.head.appendChild(s);
+    const load=src=>new Promise((ok,bad)=>{const s=document.createElement('script');s.src=src;s.async=true;s.onload=ok;s.onerror=()=>bad(new Error('Could not load '+src));document.head.appendChild(s)});
+    load('./stroke-sequence.js?v=12.3').then(()=>load('./whiteboard-module.js?v=12.3')).then(()=>{WB_MODULE_READY_V11=true;resolve(true)}).catch(e=>{WB_MODULE_PROMISE_V11=null;reject(e)});
   });
   return WB_MODULE_PROMISE_V11;
 }

@@ -1,6 +1,6 @@
-const CACHE='medgraph-pwa-v11-3-node-recognition';
+const CACHE='medgraph-pwa-v12-3-modal-surface-verbs';
 const CORE=[
- './','./index.html','./manifest.webmanifest',
+ './','./index.html','./manifest.webmanifest','./stroke-sequence.js',
  './icon-192.png','./icon-512.png','./apple-touch-icon.png'
 ];
 self.addEventListener('install',e=>{
